@@ -1,0 +1,8 @@
+{
+  "bundleId": "com.yourcompany.agentcompanion",
+  "expoOwner": "your-expo-account",
+  "expoProjectId": "YOUR_EXPO_PROJECT_UUID",
+  "appleTeamId": "YOUR_APPLE_TEAM_ID",
+  "ascAppId": "YOUR_APP_STORE_CONNECT_APP_ID",
+  "d1DatabaseId": "YOUR_D1_DATABASE_UUID"
+}

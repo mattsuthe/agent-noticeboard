@@ -1,0 +1,65 @@
+name: Ship
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 14 1 * *'
+permissions:
+  contents: read
+concurrency:
+  group: agent-production
+  cancel-in-progress: false
+jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+  ship:
+    if: vars.DEPLOY_ENABLED == 'true'
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPO_PROJECT_ID: ${{ vars.EXPO_PROJECT_ID }}
+      EXPO_OWNER: ${{ vars.EXPO_OWNER }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Require configured production accounts
+        run: node scripts/check-production.mjs
+      - name: Identify changed subsystems
+        id: changes
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [[ -n "$BEFORE_SHA" && "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]] && git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
+            changed=$(git diff --name-only "$BEFORE_SHA" HEAD)
+          else
+            changed=$(git ls-files)
+          fi
+          echo "mobile=$(echo "$changed" | grep -Eq '^(app/|shared/|package(-lock)?\.json|\.github/workflows/)' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "relay=$(echo "$changed" | grep -Eq '^(relay/|shared/|package(-lock)?\.json)' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Migrate and deploy relay
+        if: steps.changes.outputs.relay == 'true' || github.event_name == 'workflow_dispatch'
+        run: |
+          npm run migrate:remote --workspace relay
+          npm run relay:deploy
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Build or update by native fingerprint
+        if: github.event_name != 'schedule' && (steps.changes.outputs.mobile == 'true' || github.event_name == 'workflow_dispatch')
+        run: node scripts/ship-mobile.mjs
+      - name: Renew TestFlight before expiration
+        if: github.event_name == 'schedule'
+        run: node scripts/ship-mobile.mjs --force-build

@@ -1,0 +1,25 @@
+{
+  "name": "agent-companion",
+  "private": true,
+  "workspaces": [
+    "app",
+    "relay"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit && npm run typecheck --workspace app",
+    "relay:dev": "npm run dev --workspace relay",
+    "relay:deploy": "npm run deploy --workspace relay",
+    "test:configure": "node --test scripts/tests/configure.test.mjs"
+  },
+  "dependencies": {
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.11",
+    "@cloudflare/workers-types": "5.20261101.1",
+    "typescript": "~6.0.3",
+    "vitest": "^4.1.0",
+    "wrangler": "4.156.0"
+  }
+}

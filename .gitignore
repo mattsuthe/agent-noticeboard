@@ -1,0 +1,16 @@
+node_modules/
+.expo/
+.wrangler/
+.env*
+!.env.example
+.dev.vars*
+*.p8
+*.p12
+*.mobileprovision
+app/ios/
+app/android/
+dist/
+coverage/
+.DS_Store
+
+installation.json
