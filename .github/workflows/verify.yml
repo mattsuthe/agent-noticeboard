@@ -24,7 +24,7 @@ jobs:
       - run: npx expo export --platform ios
         working-directory: app
   native:
-    runs-on: macos-26
+    runs-on: macos-26-intel
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,7 +37,7 @@ jobs:
       - run: pod install
         working-directory: app/ios
       - name: Compile app and extension on hosted macOS
-        run: xcodebuild -workspace AgentCompanion.xcworkspace -scheme AgentCompanion -sdk iphonesimulator -configuration Release -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -derivedDataPath "$RUNNER_TEMP/agent-derived" build
+        run: xcodebuild -workspace AgentCompanion.xcworkspace -scheme AgentCompanion -sdk iphonesimulator -configuration Release -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=x86_64 ONLY_ACTIVE_ARCH=YES -derivedDataPath "$RUNNER_TEMP/agent-derived" build
         working-directory: app/ios
       - name: Launch the release app in a hosted iPhone simulator
         shell: bash
