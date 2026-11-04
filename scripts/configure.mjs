@@ -24,7 +24,7 @@ function visit(dir) {
   const path = join(dir,entry.name);
   if (path === join(root,"app/ios") || path === join(root,"app/android")) continue;
   if (entry.isDirectory()) visit(path);
-  else if (/\.(ts|tsx|swift|cjs|json|jsonc|yml|mjs)$/.test(path) && !path.endsWith('configure.mjs') && !path.endsWith('configure.test.mjs') && !path.endsWith('installation.example.json') && path !== resolve(file)) files.push(path);
+  else if (/\.(ts|tsx|swift|cjs|json|jsonc|yml|mjs)$/.test(path) && !path.endsWith('configure.mjs') && !path.endsWith('check-production.mjs') && !path.endsWith('configure.test.mjs') && !path.endsWith('installation.example.json') && path !== resolve(file)) files.push(path);
  }
 }
 visit(root);
