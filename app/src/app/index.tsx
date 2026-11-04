@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { Link } from "expo-router";
+import { Link, useFocusEffect } from "expo-router";
 import Markdown from "../Markdown";
 import * as Notifications from "expo-notifications";
 import { type AppState, type UIBlock } from "../../../shared/schema";
@@ -102,8 +102,10 @@ export default function Home() {
       setBusy(false);
     }
   }, []);
+  useFocusEffect(useCallback(() => {
+    void cached().then(setState).then(refresh);
+  }, [refresh]));
   useEffect(() => {
-    cached().then(setState).then(refresh);
     const subscription = Lifecycle.addEventListener("change", (v) => {
       if (v === "active") void refresh();
     });
