@@ -10,6 +10,8 @@ Use GitHub's **Use this template** to create your own repository (private is rec
 4. Copy `installation.example.json` to a local file and fill all six fields. Run `node scripts/configure.mjs /path/to/installation.json` from the repository root. This updates the app, native entitlements, shared storage, plugin, relay, tests, release script and verification workflow together. It validates all inputs before writing. Review `git diff`. Do this once on a fresh template; changing identities later creates a different installation.
 5. In `app/`, run `npx eas-cli@latest login` and `npx eas-cli@latest project:info`. Confirm your own project. The default slug is `agent-noticeboard`; if your Expo project uses another slug, set it in `app/app.config.ts`.
 
+App Store Connect requires an available listing name. Choose one for your installation, such as “Your Team Noticeboard”; the template author’s listing name may already be taken. The installed app’s display name is configured separately in `app/app.config.ts`.
+
 The template includes placeholder identifiers so offline lint/tests can run. Never build or deploy those placeholders. Product name and icon can be changed in app/app.config.ts and app/assets. A product-name change also changes the generated Xcode workspace/scheme; update .github/workflows/verify.yml accordingly.
 
 ## Deploy and sign
