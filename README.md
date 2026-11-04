@@ -13,6 +13,11 @@ An iPhone home for **any agent**. Send a note, a metric, a chart, or a decision 
 
 **This is a self-hosted template, not a hosted service.** You need your own Apple Developer membership, Expo project and Cloudflare account. The current native features require iOS 26+. Cloud build/service fees may apply. Physical push and widget behavior must be verified on your own device.
 
+<p>
+  <img src="docs/images/noticeboard-light.png" width="260" alt="Agent Noticeboard onboarding in light mode">
+  <img src="docs/images/noticeboard-dark.png" width="260" alt="Agent Noticeboard onboarding in dark mode">
+</p>
+
 ## Start with your agent
 
 Use this repository as a template, then give your agent:
