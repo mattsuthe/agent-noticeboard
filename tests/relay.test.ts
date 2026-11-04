@@ -9,6 +9,10 @@ import {
   Content,
   contentForStorage,
   initialContent,
+  NotifyRequest,
+  Page,
+  PageList,
+  PageWrite,
   State,
 } from "../shared/schema";
 import { mergePatch, signature } from "../relay/src/security";
@@ -333,6 +337,206 @@ describe("relay integration", () => {
       "Agent Noticeboard",
     );
   });
+  it("upserts pages for a bot and lets a paired device read them", async () => {
+    expect((await call("/pages", "GET", undefined, {})).status).toBe(401);
+    const pair = await (await call("/pairings", "POST", {})).json<any>();
+    const enrolled = await (
+      await call("/register", "POST", { pairingCode: pair.code }, {})
+    ).json<any>();
+    const headers = {
+      authorization: `Bearer ${enrolled.secret}`,
+      "x-device-id": enrolled.deviceId,
+    };
+    expect(
+      (
+        await call(
+          "/pages",
+          "POST",
+          { id: "briefing", title: "Morning", markdown: "Hello" },
+          headers,
+        )
+      ).status,
+    ).toBe(401);
+    expect((await call("/pages/briefing", "DELETE", undefined, headers)).status).toBe(
+      401,
+    );
+    const created = await call("/pages", "POST", {
+      id: "plan/1",
+      title: "Morning briefing",
+      markdown: "## Today\n\nReview the queue.",
+      keepUntil: "2026-12-01T00:00:00Z",
+    });
+    expect(created.status).toBe(200);
+    const page = Page.parse(await created.json());
+    expect(page.title).toBe("Morning briefing");
+    expect(Date.parse(page.keepUntil!)).toBe(Date.parse("2026-12-01T00:00:00Z"));
+    const listed = PageList.parse(
+      await (await call("/pages", "GET", undefined, headers)).json(),
+    );
+    expect(listed.pages.some((item) => item.id === "plan/1")).toBe(true);
+    const fetched = Page.parse(
+      await (await call("/pages/plan%2F1", "GET", undefined, headers)).json(),
+    );
+    expect(fetched.markdown).toBe("## Today\n\nReview the queue.");
+    const replaced = await call("/pages", "POST", {
+      id: "plan/1",
+      title: "Updated briefing",
+      markdown: "Still here",
+    });
+    expect(replaced.status).toBe(200);
+    expect(Page.parse(await replaced.json()).keepUntil).toBeUndefined();
+    expect((await call("/pages/missing-page")).status).toBe(404);
+    expect((await call(`/pages/${"a".repeat(129)}`)).status).toBe(404);
+    expect((await call("/pages/plan%2F1", "DELETE")).status).toBe(200);
+    expect((await call("/pages/plan%2F1", "GET", undefined, headers)).status).toBe(
+      404,
+    );
+    expect((await call("/pages/plan%2F1", "DELETE")).status).toBe(404);
+  });
+  it("rejects invalid pages and does not notify for a missing page", async () => {
+    expect(
+      (await call("/pages", "POST", { id: "x", title: "", markdown: "a" })).status,
+    ).toBe(400);
+    expect(
+      (
+        await call("/pages", "POST", {
+          id: "x",
+          title: "t".repeat(201),
+          markdown: "a",
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call("/pages", "POST", {
+          id: "x",
+          title: "Ok",
+          markdown: "m".repeat(10001),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call("/pages", "POST", {
+          id: "x",
+          title: "Ok",
+          markdown: "a",
+          keepUntil: "tomorrow",
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call("/pages", "POST", {
+          id: "x",
+          title: "Ok",
+          markdown: "a",
+          extra: true,
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call("/pages", "POST", {
+          id: "kept-page",
+          title: "Kept",
+          markdown: "m".repeat(10000),
+          keepUntil: new Date(Date.now() + 86400000).toISOString(),
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await call("/pages", "POST", {
+          id: "expired-page",
+          title: "Expired",
+          markdown: "old",
+          keepUntil: new Date(Date.now() - 1000).toISOString(),
+        })
+      ).status,
+    ).toBe(200);
+    const list = PageList.parse(await (await call("/pages")).json());
+    expect(list.pages.some((item) => item.id === "kept-page")).toBe(true);
+    expect(list.pages.some((item) => item.id === "expired-page")).toBe(false);
+    expect((await call("/pages/expired-page")).status).toBe(404);
+    const before = await e.DB.prepare("SELECT count(*) AS n FROM outbox").first<{
+      n: number;
+    }>();
+    expect(
+      (await call("/notify", "POST", { pageId: "expired-page", body: "nope" }))
+        .status,
+    ).toBe(404);
+    expect(
+      (await call("/notify", "POST", { pageId: "missing-page", body: "nope" }))
+        .status,
+    ).toBe(404);
+    expect((await call("/notify", "POST", { pageId: "" })).status).toBe(400);
+    const after = await e.DB.prepare("SELECT count(*) AS n FROM outbox").first<{
+      n: number;
+    }>();
+    expect(after!.n).toBe(before!.n);
+    const pair = await (await call("/pairings", "POST", {})).json<any>();
+    const enrolled = await (
+      await call("/register", "POST", { pairingCode: pair.code }, {})
+    ).json<any>();
+    const headers = {
+      authorization: `Bearer ${enrolled.secret}`,
+      "x-device-id": enrolled.deviceId,
+    };
+    await call(
+      "/register",
+      "POST",
+      { tokens: { device: "e".repeat(64) } },
+      headers,
+    );
+    const sent = await call("/notify", "POST", {
+      deviceId: enrolled.deviceId,
+      title: "Open",
+      body: "Read this",
+      pageId: "kept-page",
+    });
+    expect(sent.status).toBe(202);
+    const row = await e.DB.prepare(
+      "SELECT payload FROM outbox WHERE device_id=? AND kind='apns' ORDER BY created_at DESC LIMIT 1",
+    )
+      .bind(enrolled.deviceId)
+      .first<{ payload: string }>();
+    const payload = JSON.parse(row!.payload);
+    expect(payload.body.pageId).toBe("kept-page");
+    expect(payload.body.aps.alert.title).toBe("Open");
+  });
+  it("removes expired pages during the scheduled cleanup", async () => {
+    await call("/pages", "POST", {
+      id: "schedule-keep",
+      title: "Stay",
+      markdown: "yes",
+    });
+    await call("/pages", "POST", {
+      id: "schedule-drop",
+      title: "Drop",
+      markdown: "no",
+      keepUntil: new Date(Date.now() - 5000).toISOString(),
+    });
+    const ctx = createExecutionContext();
+    await worker.scheduled(
+      {
+        cron: "* * * * *",
+        scheduledTime: Date.now(),
+        type: "scheduled",
+        noRetry() {},
+      },
+      e,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(
+      (await e.DB.prepare("SELECT id FROM pages WHERE id=?").bind("schedule-keep").first<{ id: string }>())
+        ?.id,
+    ).toBe("schedule-keep");
+    expect(
+      await e.DB.prepare("SELECT id FROM pages WHERE id=?").bind("schedule-drop").first(),
+    ).toBeNull();
+  });
   it("requires activity token before accepting a remote start", async () => {
     const pair = await (await call("/pairings", "POST", {})).json<any>();
     const d = await (
@@ -412,6 +616,31 @@ describe("contract and signing", () => {
         },
       }).success,
     ).toBe(false);
+  });
+  it("validates reminder pages and an optional notify page id", () => {
+    const page = Page.parse({
+      id: "briefing",
+      title: "Morning briefing",
+      markdown: "Hello",
+      updatedAt: "2026-11-04T00:00:00Z",
+    });
+    expect(page.keepUntil).toBeUndefined();
+    expect(PageList.parse({ pages: [page] }).pages).toHaveLength(1);
+    expect(PageWrite.safeParse({ id: "a", title: "", markdown: "x" }).success).toBe(
+      false,
+    );
+    expect(
+      PageWrite.safeParse({ id: "a", title: "Ok", markdown: "x".repeat(10001) })
+        .success,
+    ).toBe(false);
+    expect(
+      PageWrite.safeParse({ id: "a", title: "T".repeat(200), markdown: "" }).success,
+    ).toBe(true);
+    expect(NotifyRequest.parse({ pageId: "briefing" }).silent).toBe(false);
+    expect(NotifyRequest.safeParse({ pageId: "briefing", extra: 1 }).success).toBe(
+      false,
+    );
+    expect(NotifyRequest.safeParse({ pageId: "" }).success).toBe(false);
   });
   it("rejects duplicate block IDs and insecure images", () => {
     expect(

@@ -5,6 +5,9 @@ import {
   Content,
   contentForStorage,
   initialContent,
+  NotifyRequest,
+  Page,
+  PageWrite,
   Tokens,
   Widgets,
 } from "../../shared/schema";
@@ -55,6 +58,52 @@ async function device(req: Request, env: Env) {
   if (!row || !(await equal(await hash(token), row.secret_hash)))
     fail(401, "Unauthorized");
   return row!;
+}
+async function reader(req: Request, env: Env) {
+  if (
+    env.BOT_TOKEN &&
+    (await equal(
+      req.headers.get("authorization") ?? "",
+      `Bearer ${env.BOT_TOKEN}`,
+    ))
+  )
+    await bot(req, env);
+  else await device(req, env);
+}
+type PageRow = {
+  id: string;
+  title: string;
+  markdown: string;
+  keep_until: number | null;
+  updated_at: string;
+};
+function storedPage(row: PageRow) {
+  return Page.parse({
+    id: row.id,
+    title: row.title,
+    markdown: row.markdown,
+    updatedAt: row.updated_at,
+    ...(row.keep_until == null
+      ? {}
+      : { keepUntil: new Date(row.keep_until).toISOString() }),
+  });
+}
+function routePageId(path: string) {
+  let value = "";
+  try {
+    value = decodeURIComponent(path.slice("/pages/".length));
+  } catch {
+    return null;
+  }
+  const parsed = PageWrite.shape.id.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+async function visiblePage(env: Env, id: string) {
+  return env.DB.prepare(
+    "SELECT id,title,markdown,keep_until,updated_at FROM pages WHERE id=? AND (keep_until IS NULL OR keep_until>=?)",
+  )
+    .bind(id, Date.now())
+    .first<PageRow>();
 }
 async function state(env: Env) {
   await env.DB.prepare(
@@ -203,15 +252,7 @@ async function handle(
     fail(409, "Concurrent token registration; retry");
   }
   if (path === "/state" && method === "GET") {
-    if (
-      env.BOT_TOKEN &&
-      (await equal(
-        req.headers.get("authorization") ?? "",
-        `Bearer ${env.BOT_TOKEN}`,
-      ))
-    )
-      await bot(req, env);
-    else await device(req, env);
+    await reader(req, env);
     return json(await state(env));
   }
   if (path === "/action" && method === "POST") {
@@ -234,7 +275,51 @@ async function handle(
     ctx.waitUntil(drain(env));
     return json({ accepted: true, id: input.id }, 202);
   }
+  if (path === "/pages" && method === "GET") {
+    await reader(req, env);
+    const { results } = await env.DB.prepare(
+      "SELECT id,title,markdown,keep_until,updated_at FROM pages WHERE keep_until IS NULL OR keep_until>=? ORDER BY updated_at DESC",
+    )
+      .bind(Date.now())
+      .all<PageRow>();
+    return json({ pages: results.map(storedPage) });
+  }
+  if (path.startsWith("/pages/") && method === "GET") {
+    await reader(req, env);
+    const id = routePageId(path);
+    const row = id ? await visiblePage(env, id) : null;
+    if (!row) fail(404, "Page not found");
+    return json(storedPage(row!));
+  }
   await bot(req, env);
+  if (path === "/pages" && method === "POST") {
+    const input = PageWrite.parse(await body(req));
+    const updatedAt = new Date().toISOString();
+    const keepUntil = input.keepUntil == null ? null : Date.parse(input.keepUntil);
+    if (keepUntil != null && !Number.isFinite(keepUntil))
+      fail(400, "Invalid keepUntil");
+    await env.DB.prepare(
+      "INSERT INTO pages(id,title,markdown,keep_until,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,markdown=excluded.markdown,keep_until=excluded.keep_until,updated_at=excluded.updated_at",
+    )
+      .bind(input.id, input.title, input.markdown, keepUntil, updatedAt)
+      .run();
+    const row = await env.DB.prepare(
+      "SELECT id,title,markdown,keep_until,updated_at FROM pages WHERE id=?",
+    )
+      .bind(input.id)
+      .first<PageRow>();
+    if (!row) fail(500, "Page was not stored");
+    return json(storedPage(row!));
+  }
+  if (path.startsWith("/pages/") && method === "DELETE") {
+    const id = routePageId(path);
+    if (!id) fail(404, "Page not found");
+    const removed = await env.DB.prepare("DELETE FROM pages WHERE id=?")
+      .bind(id)
+      .run();
+    if (!removed.meta.changes) fail(404, "Page not found");
+    return json({ deleted: true });
+  }
   if (path === "/pairings" && method === "POST") {
     const code = secret().slice(0, 24);
     const expiresAt = Date.now() + 10 * 60000;
@@ -312,15 +397,9 @@ async function handle(
     return json({ revision: result.revision, jobs, status: "queued" }, 202);
   }
   if (path === "/notify" && method === "POST") {
-    const input = z
-      .object({
-        deviceId: z.string().optional(),
-        silent: z.boolean().default(false),
-        title: z.string().max(200).optional(),
-        body: z.string().max(2000).optional(),
-      })
-      .strict()
-      .parse(await body(req));
+    const input = NotifyRequest.parse(await body(req));
+    if (input.pageId && !(await visiblePage(env, input.pageId)))
+      fail(404, "Page not found");
     const entries = [];
     for (const d of await devices(env, input.deviceId)) {
       const token = JSON.parse(d.tokens).device;
@@ -341,6 +420,7 @@ async function handle(
                     },
                     sound: "default",
                   },
+              ...(input.pageId ? { pageId: input.pageId } : {}),
             },
           },
         });
@@ -466,6 +546,9 @@ export default {
           env.DB.prepare("DELETE FROM rate_limits WHERE expires_at<?").bind(
             Date.now(),
           ),
+          env.DB.prepare(
+            "DELETE FROM pages WHERE keep_until IS NOT NULL AND keep_until<?",
+          ).bind(Date.now()),
         ]);
       })(),
     );
