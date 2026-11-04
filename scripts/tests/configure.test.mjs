@@ -9,8 +9,17 @@ test('configuration validates before writing and installs matching native identi
  try {
   mkdirSync(join(dir,'scripts'));
   cpSync(resolve('scripts/configure.mjs'),join(dir,'scripts/configure.mjs'));
-  for(const file of ['app/app.config.ts','app/plugins/withAgentWidgets.cjs','app/modules/agent-native/ios/AgentShared.swift','relay/wrangler.jsonc','.github/workflows/verify.yml']) {
-   mkdirSync(join(dir,file,'..'),{recursive:true});cpSync(resolve(file),join(dir,file));
+  // Fixed fixtures keep this test useful after the repository itself is configured.
+  const fixtures = {
+   'app/app.config.ts': 'bundleIdentifier: "com.example.agentcompanion"',
+   'app/plugins/withAgentWidgets.cjs': 'group.com.example.agentcompanion',
+   'app/modules/agent-native/ios/AgentShared.swift': 'group.com.example.agentcompanion',
+   'relay/wrangler.jsonc': 'com.example.agentcompanion.widgets',
+   '.github/workflows/verify.yml': 'com.example.agentcompanion',
+   'scripts/tests/configure.test.mjs': 'com.example.agentcompanion',
+  };
+  for(const [file, contents] of Object.entries(fixtures)) {
+   mkdirSync(join(dir,file,'..'),{recursive:true});writeFileSync(join(dir,file),contents);
   }
   const config=join(dir,'installation.json');
   writeFileSync(config,JSON.stringify({bundleId:'bad'}));
@@ -24,5 +33,6 @@ test('configuration validates before writing and installs matching native identi
   assert.match(readFileSync(join(dir,'app/modules/agent-native/ios/AgentShared.swift'),'utf8'),/group\.org\.sample\.companion/);
   assert.match(readFileSync(join(dir,'relay/wrangler.jsonc'),'utf8'),/org\.sample\.companion\.widgets/);
   assert.match(readFileSync(join(dir,'.github/workflows/verify.yml'),'utf8'),/org\.sample\.companion/);
+  assert.equal(readFileSync(join(dir,'scripts/tests/configure.test.mjs'),'utf8'), 'com.example.agentcompanion');
  } finally {rmSync(dir,{recursive:true,force:true});}
 });
