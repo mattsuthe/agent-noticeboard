@@ -25,12 +25,13 @@ export default function Layout() {
         screenOptions={{
           headerStyle: { backgroundColor: dark ? "#000000" : "#F2F2F7" },
           headerShadowVisible: false,
+          headerTitleStyle: { color: dark ? "#F2F2F7" : "#1C1C1E" },
           headerUserInterfaceStyle: dark ? "dark" : "light",
           headerTintColor: dark ? "#0A84FF" : "#007AFF",
           contentStyle: { backgroundColor: colors.background },
         }}
       >
-        <Stack.Screen name="index" options={{ title: "Companion", headerLargeTitleEnabled: true }} />
+        <Stack.Screen name="index" options={{ title: "Companion", headerShown: false }} />
         <Stack.Screen name="settings" options={{ title: "Settings" }} />
         <Stack.Screen name="pair" options={{ title: "Pair iPhone" }} />
       </Stack>

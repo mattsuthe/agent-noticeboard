@@ -13,6 +13,7 @@ export const styles = StyleSheet.create({
  page: { flex: 1, backgroundColor: colors.background },
  content: { padding: 20, gap: 16, paddingBottom: 56 },
  card: { backgroundColor: colors.surface, borderRadius: 22, padding: 20, gap: 10 },
+ largeTitle: { fontSize: 34, fontWeight: "700", letterSpacing: -0.8, color: colors.label },
  title: { fontSize: 22, fontWeight: "600", letterSpacing: -0.5, color: colors.label },
  text: { fontSize: 17, lineHeight: 25, color: colors.label },
  muted: { fontSize: 13, lineHeight: 19, color: colors.secondary },

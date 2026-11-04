@@ -12,7 +12,7 @@ import { Link } from "expo-router";
 import Markdown from "../Markdown";
 import * as Notifications from "expo-notifications";
 import { type AppState, type UIBlock } from "../../../shared/schema";
-import { action, cached, sync } from "../relay";
+import { action, cached, credentials, sync } from "../relay";
 import { styles as s, colors } from "../theme";
 function BlockView({
   block,
@@ -89,6 +89,11 @@ export default function Home() {
   const refresh = useCallback(async () => {
     setBusy(true);
     try {
+      if (!(await credentials())) {
+        setState(null);
+        setMessage("");
+        return;
+      }
       setState(await sync());
       setMessage("");
     } catch (e) {
@@ -132,12 +137,13 @@ export default function Home() {
         />
       }
     >
-      <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-        <Text style={s.muted}>YOUR AGENTS, AT A GLANCE</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <Text accessibilityRole="header" style={s.largeTitle}>Companion</Text>
         <Link href="/settings" style={{ color: colors.accent }}>
           Settings
         </Link>
       </View>
+      <Text style={s.muted}>YOUR AGENTS, AT A GLANCE</Text>
       {message !== "" && (
         <Text accessibilityRole="alert" style={s.error}>
           {message}
