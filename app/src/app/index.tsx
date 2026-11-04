@@ -138,7 +138,7 @@ export default function Home() {
       }
     >
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <Text accessibilityRole="header" style={s.largeTitle}>Companion</Text>
+        <Text accessibilityRole="header" style={s.largeTitle}>Noticeboard</Text>
         <Link href="/settings" style={{ color: colors.accent }}>
           Settings
         </Link>

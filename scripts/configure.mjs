@@ -5,7 +5,7 @@ const file = process.argv[2];
 if (!file) throw new Error('Usage: node scripts/configure.mjs /path/to/installation.json (see installation.example.json)');
 const values = JSON.parse(readFileSync(file, 'utf8'));
 const fields = {
- bundleId: ['com.example.agentcompanion', /^(?!com\.example\.)[a-zA-Z][a-zA-Z0-9]*(\.[a-zA-Z][a-zA-Z0-9]*){2,}$/],
+ bundleId: ['com.example.agentnoticeboard', /^(?!com\.example\.)[a-zA-Z][a-zA-Z0-9]*(\.[a-zA-Z][a-zA-Z0-9]*){2,}$/],
  expoOwner: ['YOUR_EXPO_OWNER', /^[a-zA-Z0-9][a-zA-Z0-9_-]{1,60}$/],
  expoProjectId: ['00000000-0000-0000-0000-000000000002', /^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/],
  appleTeamId: ['YOUR_TEAM_ID', /^[A-Z0-9]{10}$/],

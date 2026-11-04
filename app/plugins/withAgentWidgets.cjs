@@ -8,8 +8,8 @@ const fs = require("node:fs"),
   path = require("node:path"),
   plist = require("@expo/plist").default;
 const targetName = "AgentWidgets",
-  group = "group.com.example.agentcompanion",
-  keychain = "$(AppIdentifierPrefix)com.example.agentcompanion.shared",
+  group = "group.com.example.agentnoticeboard",
+  keychain = "$(AppIdentifierPrefix)com.example.agentnoticeboard.shared",
   intentFile = "AgentAppIntents.swift";
 function ensureAppIntentSource(project, projectRoot, iosRoot) {
   fs.copyFileSync(
@@ -35,7 +35,7 @@ function ensureAppIntentSource(project, projectRoot, iosRoot) {
       break;
     }
   }
-  if (!appUuid) throw new Error("Agent Companion app target was not found");
+  if (!appUuid) throw new Error("Agent Noticeboard app target was not found");
   project.addSourceFile(
     intentFile,
     { target: appUuid },
@@ -61,7 +61,7 @@ module.exports = function withAgentWidgets(config) {
             appExtensions: [
               {
                 targetName,
-                bundleIdentifier: "com.example.agentcompanion.widgets",
+                bundleIdentifier: "com.example.agentnoticeboard.widgets",
                 entitlements: {
                   "com.apple.security.application-groups": [group],
                   "keychain-access-groups": [keychain],
@@ -107,7 +107,7 @@ module.exports = function withAgentWidgets(config) {
     fs.writeFileSync(
       path.join(dir, "Info.plist"),
       plist.build({
-        CFBundleDisplayName: "Agent Companion",
+        CFBundleDisplayName: "Agent Noticeboard",
         CFBundleIdentifier: "$(PRODUCT_BUNDLE_IDENTIFIER)",
         CFBundleExecutable: "$(EXECUTABLE_NAME)",
         CFBundleName: "$(PRODUCT_NAME)",
@@ -141,7 +141,7 @@ module.exports = function withAgentWidgets(config) {
       targetName,
       "app_extension",
       targetName,
-      "com.example.agentcompanion.widgets",
+      "com.example.agentnoticeboard.widgets",
     );
     p.addBuildPhase([], "PBXSourcesBuildPhase", "Sources", target.uuid);
     p.addBuildPhase([], "PBXFrameworksBuildPhase", "Frameworks", target.uuid);

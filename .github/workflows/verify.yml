@@ -37,7 +37,7 @@ jobs:
       - run: pod install
         working-directory: app/ios
       - name: Compile app and extension on hosted macOS
-        run: xcodebuild -workspace AgentCompanion.xcworkspace -scheme AgentCompanion -sdk iphonesimulator -configuration Release -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=x86_64 ONLY_ACTIVE_ARCH=YES -derivedDataPath "$RUNNER_TEMP/agent-derived" build
+        run: xcodebuild -workspace AgentNoticeboard.xcworkspace -scheme AgentNoticeboard -sdk iphonesimulator -configuration Release -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=x86_64 ONLY_ACTIVE_ARCH=YES -derivedDataPath "$RUNNER_TEMP/agent-derived" build
         working-directory: app/ios
       - name: Launch the release app in a hosted iPhone simulator
         timeout-minutes: 20
@@ -46,18 +46,18 @@ jobs:
           device=$(xcrun simctl list devices available -j | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const devices=Object.entries(JSON.parse(s).devices).filter(([runtime])=>runtime.includes("iOS-26")).flatMap(([,devices])=>devices);const phone=devices.find(d=>d.name.startsWith("iPhone"));if(!phone)process.exit(1);console.log(phone.udid);})')
           xcrun simctl boot "$device"
           xcrun simctl bootstatus "$device" -b
-          xcrun simctl install "$device" "$RUNNER_TEMP/agent-derived/Build/Products/Release-iphonesimulator/AgentCompanion.app"
+          xcrun simctl install "$device" "$RUNNER_TEMP/agent-derived/Build/Products/Release-iphonesimulator/AgentNoticeboard.app"
           mkdir -p "$RUNNER_TEMP/agent-evidence"
-          xcrun simctl launch --stdout="$RUNNER_TEMP/agent-evidence/stdout.log" --stderr="$RUNNER_TEMP/agent-evidence/stderr.log" "$device" com.example.agentcompanion
+          xcrun simctl launch --stdout="$RUNNER_TEMP/agent-evidence/stdout.log" --stderr="$RUNNER_TEMP/agent-evidence/stderr.log" "$device" com.example.agentnoticeboard
           sleep 12
           mkdir -p "$RUNNER_TEMP/agent-evidence"
           xcrun simctl io "$device" screenshot "$RUNNER_TEMP/agent-evidence/first-launch.png"
           xcrun simctl ui "$device" appearance dark
           sleep 2
           xcrun simctl io "$device" screenshot "$RUNNER_TEMP/agent-evidence/dark-appearance.png"
-          xcrun simctl spawn "$device" log show --last 3m --style compact --predicate 'process == "AgentCompanion" OR eventMessage CONTAINS "com.example.agentcompanion"' > "$RUNNER_TEMP/agent-evidence/system.log" 2>&1 || true
-          find "$HOME/Library/Logs/DiagnosticReports" "$HOME/Library/Developer/CoreSimulator/Devices/$device/data/Library/Logs" -name 'AgentCompanion*' -type f -exec cp {} "$RUNNER_TEMP/agent-evidence/" \; || true
-          xcrun simctl spawn "$device" launchctl list | grep com.example.agentcompanion
+          xcrun simctl spawn "$device" log show --last 3m --style compact --predicate 'process == "AgentNoticeboard" OR eventMessage CONTAINS "com.example.agentnoticeboard"' > "$RUNNER_TEMP/agent-evidence/system.log" 2>&1 || true
+          find "$HOME/Library/Logs/DiagnosticReports" "$HOME/Library/Developer/CoreSimulator/Devices/$device/data/Library/Logs" -name 'AgentNoticeboard*' -type f -exec cp {} "$RUNNER_TEMP/agent-evidence/" \; || true
+          xcrun simctl spawn "$device" launchctl list | grep com.example.agentnoticeboard
       - uses: actions/upload-artifact@v4
         if: always()
         with:

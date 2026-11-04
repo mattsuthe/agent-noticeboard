@@ -138,7 +138,7 @@ describe("relay integration", () => {
         {
           id: "welcome",
           type: "text",
-          title: "Agent Companion",
+          title: "Agent Noticeboard",
           text: "Your assistant, within reach.",
         },
       ],
@@ -305,7 +305,7 @@ describe("relay integration", () => {
       buttons: [{ id: "check-in", label: "Check in" }],
     });
   });
-  it("defaults an alert title to Agent Companion", async () => {
+  it("defaults an alert title to Agent Noticeboard", async () => {
     const pair = await (await call("/pairings", "POST", {})).json<any>();
     const d = await (
       await call("/register", "POST", { pairingCode: pair.code }, {})
@@ -330,7 +330,7 @@ describe("relay integration", () => {
       .bind(d.deviceId)
       .first<{ payload: string }>();
     expect(JSON.parse(row!.payload).body.aps.alert.title).toBe(
-      "Agent Companion",
+      "Agent Noticeboard",
     );
   });
   it("requires activity token before accepting a remote start", async () => {
@@ -522,13 +522,13 @@ describe("APNs delivery with a mocked Apple endpoint", () => {
       });
       expect(received).toHaveLength(3);
       expect(received[0].url).toBe(`https://api.push.apple.com/3/device/${token}`);
-      expect(received[0].headers["apns-topic"]).toBe("com.example.agentcompanion");
+      expect(received[0].headers["apns-topic"]).toBe("com.example.agentnoticeboard");
       expect(received[0].headers["apns-push-type"]).toBe("alert");
       expect(received[0].body.aps.alert.title).toBe("Hello");
       // WidgetKit's token is distinct, but its topic uses the containing app ID.
       expect(received[1].url).toBe(`https://api.push.apple.com/3/device/${widget}`);
       expect(received[1].headers["apns-topic"]).toBe(
-        "com.example.agentcompanion.push-type.widgets",
+        "com.example.agentnoticeboard.push-type.widgets",
       );
       expect(received[1].headers["apns-push-type"]).toBe("widgets");
       expect(received[1].headers["apns-priority"]).toBe("5");

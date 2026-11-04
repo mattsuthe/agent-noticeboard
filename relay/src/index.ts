@@ -248,7 +248,7 @@ async function handle(
       {
         code,
         expiresAt,
-        qrPayload: `agentcompanion://pair?relay=${encodeURIComponent(relay)}&code=${code}`,
+        qrPayload: `agentnoticeboard://pair?relay=${encodeURIComponent(relay)}&code=${code}`,
       },
       201,
     );
@@ -336,7 +336,7 @@ async function handle(
                 ? { "content-available": 1 }
                 : {
                     alert: {
-                      title: input.title ?? "Agent Companion",
+                      title: input.title ?? "Agent Noticeboard",
                       body: input.body ?? "",
                     },
                     sound: "default",

@@ -20,8 +20,8 @@ export default function Pair() {
   function scan(value: string) {
     try {
       const url = new URL(value);
-      if (url.protocol !== "agentcompanion:" || url.hostname !== "pair")
-        throw new Error("This is not an Agent Companion pairing code.");
+      if (url.protocol !== "agentnoticeboard:" || url.hostname !== "pair")
+        throw new Error("This is not an Agent Noticeboard pairing code.");
       const relay = url.searchParams.get("relay"),
         code = url.searchParams.get("code");
       if (!relay || !code) throw new Error("Incomplete pairing code.");

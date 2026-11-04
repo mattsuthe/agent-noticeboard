@@ -1,16 +1,16 @@
 import type { ExpoConfig } from "expo/config";
 export default (): ExpoConfig => ({
-  name: "Agent Companion",
-  slug: "agent-companion",
+  name: "Agent Noticeboard",
+  slug: "agent-noticeboard",
   owner: "YOUR_EXPO_OWNER",
-  scheme: "agentcompanion",
+  scheme: "agentnoticeboard",
   version: "1.0.0",
   orientation: "portrait",
   userInterfaceStyle: "automatic",
   icon: "./assets/icon.png",
   runtimeVersion: { policy: "fingerprint" },
   ios: {
-    bundleIdentifier: "com.example.agentcompanion",
+    bundleIdentifier: "com.example.agentnoticeboard",
     appleTeamId: "YOUR_TEAM_ID",
     supportsTablet: false,
     infoPlist: {
@@ -20,10 +20,10 @@ export default (): ExpoConfig => ({
     },
     entitlements: {
       "com.apple.security.application-groups": [
-        "group.com.example.agentcompanion",
+        "group.com.example.agentnoticeboard",
       ],
       "keychain-access-groups": [
-        "$(AppIdentifierPrefix)com.example.agentcompanion.shared",
+        "$(AppIdentifierPrefix)com.example.agentnoticeboard.shared",
       ],
     },
   },

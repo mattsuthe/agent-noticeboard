@@ -33,7 +33,7 @@ public struct AgentActionChoice: Sendable, Hashable { public var id:String; publ
 public enum AgentActionError: Error, Sendable { case unpaired, missingAction }
 public enum AgentShared {
  public static var onActionsChanged:(() -> Void)?
- static let group = "group.com.example.agentcompanion"
+ static let group = "group.com.example.agentnoticeboard"
  static var directory: URL {
   get throws {
    guard let directory=FileManager.default.containerURL(forSecurityApplicationGroupIdentifier:group) else { throw AgentError.sharedStorageUnavailable }
@@ -42,7 +42,7 @@ public enum AgentShared {
  }
  static var defaults: UserDefaults { UserDefaults(suiteName: group)! }
  static var keychainGroup: String { Bundle.main.object(forInfoDictionaryKey: "AgentKeychainGroup") as? String ?? "" }
- static func keychainQuery() -> [String: Any] { [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"AgentCompanion",kSecAttrAccount as String:"relay",kSecAttrAccessGroup as String:keychainGroup] }
+ static func keychainQuery() -> [String: Any] { [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"AgentNoticeboard",kSecAttrAccount as String:"relay",kSecAttrAccessGroup as String:keychainGroup] }
  static func configure(_ credential: AgentCredential) throws {
   guard let url=URL(string:credential.relay),url.scheme=="https",url.host != nil else { throw AgentError.invalidURL }
   let data=try JSONEncoder().encode(credential)

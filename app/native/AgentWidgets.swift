@@ -41,7 +41,7 @@ enum AgentWidgetIntentError: Error, CustomLocalizedStringResourceConvertible {
  var localizedStringResource: LocalizedStringResource {
   switch self {
   case .missingAction: return "Name an action to send to your agent."
-  case .unpaired: return "Pair Agent Companion before sending an action."
+  case .unpaired: return "Pair Agent Noticeboard before sending an action."
   }
  }
 }
@@ -79,7 +79,7 @@ struct AgentWidgetView: View {
   } else {
    VStack(alignment: .leading, spacing: 6) {
     Image(systemName: "sparkle")
-    Text("Agent Companion").font(.headline)
+    Text("Agent Noticeboard").font(.headline)
     if family != .accessoryRectangular { Text("Open the app to pair and sync.").font(.caption) }
    }
    .frame(maxWidth: .infinity, alignment: .leading)

@@ -1,19 +1,19 @@
-# Agent Companion operations — Linux operator
+# Agent Noticeboard operations — Linux operator
 
 Read [SETUP.md](SETUP.md) first. Every installation uses its own Apple, Expo and Cloudflare resources. All devices on one relay share one dashboard.
 
 ## First deployment
 
 1. Clone your own repo and run `npm ci`, `npm run typecheck`, `npm test`.
-2. Run `npx wrangler login`, then `npx wrangler d1 create agent-companion`. Put the returned database ID into `relay/wrangler.jsonc` (replace the explicit placeholder). Set Cloudflare account ID in the CI variable `CLOUDFLARE_ACCOUNT_ID`.
-3. From `relay/`, run `npx wrangler d1 migrations apply agent-companion --remote`.
+2. Run `npx wrangler login`, then `npx wrangler d1 create agent-noticeboard`. Put the returned database ID into `relay/wrangler.jsonc` (replace the explicit placeholder). Set Cloudflare account ID in the CI variable `CLOUDFLARE_ACCOUNT_ID`.
+3. From `relay/`, run `npx wrangler d1 migrations apply agent-noticeboard --remote`.
 4. Create a random 32-byte bot token locally. Install it using `npx wrangler secret put BOT_TOKEN`. Supply values only through the prompt or secret manager, never shell command arguments committed into logs.
 5. In Apple Developer, register both bundle IDs, App Group and capabilities. Create an APNs authentication key allowed for the app's push topics. Set Wrangler secrets `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID`. The `.p8` belongs in the secret store, not this repository. TestFlight uses production APNs.
 6. Optional webhook: set `WEBHOOK_URL` and `WEBHOOK_SECRET` with Wrangler secrets. Use a trusted HTTPS endpoint. Both are required to enable forwarding.
 7. Run `npm run relay:deploy` from repository root. Save the resulting HTTPS origin as your relay URL.
 8. Run `npx eas-cli login`, create your own Expo project, then run the configuration command in SETUP.md. Verify it with `npx eas-cli project:info` from `app/`.
 9. Set `EXPO_PROJECT_ID=00000000-0000-0000-0000-000000000002` and `EXPO_OWNER=YOUR_EXPO_OWNER` as GitHub repository variables. In GitHub's `production` environment, store `EXPO_TOKEN` and a narrowly scoped `CLOUDFLARE_API_TOKEN` for Worker deployment and D1 migrations.
-10. Create the App Store Connect app, SKU `agent-companion`, bundle `com.example.agentcompanion`. Add its `ascAppId` to `app/eas.json` under `submit.production.ios`. Configure the App Store Connect API key with `eas credentials -p ios`. Let EAS generate and store signing certificates/profiles for both app targets. Initial Apple authentication may require the owner; unattended submission uses the API key.
+10. Create the App Store Connect app, SKU `agent-noticeboard`, bundle `com.example.agentnoticeboard`. Add its `ascAppId` to `app/eas.json` under `submit.production.ios`. Configure the App Store Connect API key with `eas credentials -p ios`. Let EAS generate and store signing certificates/profiles for both app targets. Initial Apple authentication may require the owner; unattended submission uses the API key.
 11. Build with `eas build -p ios --profile production --auto-submit`. Confirm Apple processing completes. Create an **internal** TestFlight group, add the owner as an eligible App Store Connect internal tester, and enable automatic distribution. Do not create an external group or submit for public review.
 12. Install TestFlight and the app on the owner's iPhone. Create a pairing code, enter it with the relay URL, or encode `qrPayload` as a QR and scan it. Grant notifications and add the desired widgets. Lock Screen widgets (Bot Card, Metric) are added from the Lock Screen customizer. Chart is a Home Screen widget and is the one to use in StandBy alongside Metric. Siri, Shortcuts, and the Action Button list "Send to Agent" and "Run Button" after this build is installed.
 
@@ -120,11 +120,11 @@ Supply the current revision; HTTP 409 means fetch and reapply the intended chang
 curl -fsS "$RELAY_URL/widget" -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' -d '{"kind":"botCard","data":{"title":"Hello from Agent","body":"Widget data updated","timestamp":"2026-11-01T12:00:00Z"}}'
 curl -fsS "$RELAY_URL/widget" -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' -d '{"kind":"chart","data":{"title":"Billable hours","unit":"h","target":8,"color":"#92EDB9","points":[{"label":"Mon","value":6},{"label":"Tue","value":7.5},{"label":"Wed","value":8}]}}'
 curl -fsS "$RELAY_URL/widget" -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' -d '{"kind":"buttonGrid","data":{"prompt":"Approve the example order?","buttons":[{"id":"approve","label":"Approve","style":"primary"},{"id":"reject","label":"Reject","style":"destructive"}]}}'
-curl -fsS "$RELAY_URL/notify" -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' -d '{"title":"Agent","body":"Your companion is connected"}'
+curl -fsS "$RELAY_URL/notify" -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' -d '{"title":"Agent","body":"Your noticeboard is connected"}'
 curl -fsS "$RELAY_URL/notify" -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' -d '{"silent":true}'
 ```
 
-`/notify` optionally accepts `deviceId`; otherwise it targets all enrolled devices with tokens. Omit `title` and the alert title is Agent Companion. `/widget` updates shared state and queues pushes to enrolled widget tokens. Jobs contain status, not proof of display. No registered tokens means an empty job list.
+`/notify` optionally accepts `deviceId`; otherwise it targets all enrolled devices with tokens. Omit `title` and the alert title is Agent Noticeboard. `/widget` updates shared state and queues pushes to enrolled widget tokens. Jobs contain status, not proof of display. No registered tokens means an empty job list.
 
 ## Live Activities
 

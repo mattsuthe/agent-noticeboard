@@ -1,5 +1,5 @@
 {
-  "name": "agent-companion",
+  "name": "agent-noticeboard",
   "private": true,
   "workspaces": [
     "app",

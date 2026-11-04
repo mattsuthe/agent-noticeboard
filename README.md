@@ -1,4 +1,6 @@
-# Agent Companion
+# Agent Noticeboard
+
+**Updates and actions from any AI agent.**
 
 An iPhone home for **any agent**. Send a note, a metric, a chart, or a decision to your phone using a small JSON API. Get button taps back through a signed webhook or polling. Bring your own agent, model, scheduler, or scripts: no AI provider account or SDK is required by this app.
 

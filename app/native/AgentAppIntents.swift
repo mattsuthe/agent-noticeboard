@@ -56,7 +56,7 @@ enum AgentSpokenError: Error, CustomLocalizedStringResourceConvertible {
  var localizedStringResource: LocalizedStringResource {
   switch self {
   case .missingAction: return "Name an action to send to your agent."
-  case .unpaired: return "Pair Agent Companion before sending an action."
+  case .unpaired: return "Pair Agent Noticeboard before sending an action."
   }
  }
 }

@@ -31,7 +31,7 @@ export default function Layout() {
           contentStyle: { backgroundColor: colors.background },
         }}
       >
-        <Stack.Screen name="index" options={{ title: "Companion", headerShown: false }} />
+        <Stack.Screen name="index" options={{ title: "Noticeboard", headerShown: false }} />
         <Stack.Screen name="settings" options={{ title: "Settings" }} />
         <Stack.Screen name="pair" options={{ title: "Pair iPhone" }} />
       </Stack>

@@ -186,7 +186,7 @@ export const initialContent: z.input<typeof Content> = {
     {
       id: "welcome",
       type: "text",
-      title: "Agent Companion",
+      title: "Agent Noticeboard",
       text: "Your assistant, within reach.",
     },
   ],
