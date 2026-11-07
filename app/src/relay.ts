@@ -1,7 +1,13 @@
 import * as SecureStore from "expo-secure-store";
 import * as Notifications from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { State, type AppState } from "../../shared/schema";
+import {
+  Page,
+  PageList,
+  State,
+  type AppState,
+  type PageRecord,
+} from "../../shared/schema";
 import { AgentNative, type Pairing } from "./native";
 import * as Crypto from "expo-crypto";
 const key = "agent-pairing";
@@ -98,4 +104,10 @@ export async function action(actionId: string) {
     source: "app",
     timestamp: new Date().toISOString(),
   });
+}
+export async function loadPages(): Promise<PageRecord[]> {
+  return PageList.parse(await request("/pages")).pages;
+}
+export async function loadPage(id: string): Promise<PageRecord> {
+  return Page.parse(await request(`/pages/${encodeURIComponent(id)}`));
 }

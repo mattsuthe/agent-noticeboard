@@ -124,7 +124,21 @@ curl -fsS "$RELAY_URL/notify" -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-
 curl -fsS "$RELAY_URL/notify" -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' -d '{"silent":true}'
 ```
 
-`/notify` optionally accepts `deviceId`; otherwise it targets all enrolled devices with tokens. Omit `title` and the alert title is Agent Noticeboard. `/widget` updates shared state and queues pushes to enrolled widget tokens. Jobs contain status, not proof of display. No registered tokens means an empty job list.
+`/notify` optionally accepts `deviceId`; otherwise it targets all enrolled devices with tokens. Omit `title` and the alert title is Agent Noticeboard. Optional `pageId` names a page to open when the notification is tapped. If that page does not exist, the request returns HTTP 404 and queues nothing. `/widget` updates shared state and queues pushes to enrolled widget tokens. Jobs contain status, not proof of display. No registered tokens means an empty job list.
+
+## Pages
+
+`POST /pages` (bot auth) upserts a reminder page and returns the stored page. `GET /pages` returns `{ "pages": [...] }` and `GET /pages/:id` returns one page; both accept bot or paired-device auth. `DELETE /pages/:id` (bot auth) removes one. A page has `id` (1–128 characters), `title` (1–200 characters), `markdown` (at most 10,000 characters; the same small Markdown subset as a dashboard block), optional `keepUntil` (ISO datetime), and, in responses, `updatedAt`. Omit `keepUntil` to keep the page until it is deleted; sending a replacement without `keepUntil` clears an existing expiry. After `keepUntil`, the page is left out of lists and reads as not found. The scheduled relay pass deletes expired pages.
+
+The alert payload includes `pageId` next to `aps` when one was requested. The app opens that page from the notification tap, and also lists pages from the noticeboard. The screen is JavaScript-only, so it can ship as an update to a binary that already includes the current native runtime.
+
+```sh
+curl -fsS "$RELAY_URL/pages" -X POST -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' -d '{"id":"briefing","title":"Morning briefing","markdown":"## Today\n\nReview the queue.","keepUntil":"2026-12-01T00:00:00Z"}'
+curl -fsS "$RELAY_URL/pages" -H "Authorization: Bearer $BOT_TOKEN"
+curl -fsS "$RELAY_URL/pages/briefing" -H "Authorization: Bearer $DEVICE_SECRET" -H "X-Device-ID: $DEVICE_ID"
+curl -fsS "$RELAY_URL/notify" -H "Authorization: Bearer $BOT_TOKEN" -H 'Content-Type: application/json' -d '{"title":"Briefing","body":"Your morning page is ready.","pageId":"briefing"}'
+curl -fsS -X DELETE "$RELAY_URL/pages/briefing" -H "Authorization: Bearer $BOT_TOKEN"
+```
 
 ## Live Activities
 
@@ -176,7 +190,7 @@ Non-secret configuration: Expo owner/project UUID, Cloudflare account/database I
 
 Run `RELAY_URL=... BOT_TOKEN=... bash relay/scripts/smoke.sh` with credentials loaded securely. The script temporarily replaces dashboard/widget state, restores it on exit, creates/revokes a disposable device, and retains one test action. Run against a development relay or during an agreed test window without concurrent state writers. It exercises `/activity`'s missing-token failure, not real activity delivery.
 
-Physical acceptance: install internal TestFlight, pair, allow alerts, confirm `/notify` buzzes; add Bot Card and confirm `/widget` refresh; add the Lock Screen Metric or Bot Card; add Chart and confirm a chart payload draws; tap Button Grid, including a prompt and a destructive style, and confirm `/actions`; run "Send to Agent" from Shortcuts or the Action Button and confirm the same action row; remotely start/update/end Live Activity and confirm the countdown; publish an OTA visible home change and verify no binary rebuild. Record observations in `docs/ACCEPTANCE.md`.
+Physical acceptance: install internal TestFlight, pair, allow alerts, confirm `/notify` buzzes; publish a page and confirm a `pageId` notification opens it; add Bot Card and confirm `/widget` refresh; add the Lock Screen Metric or Bot Card; add Chart and confirm a chart payload draws; tap Button Grid, including a prompt and a destructive style, and confirm `/actions`; run "Send to Agent" from Shortcuts or the Action Button and confirm the same action row; remotely start/update/end Live Activity and confirm the countdown; publish an OTA visible home change and verify no binary rebuild. Record observations in `docs/ACCEPTANCE.md`.
 
 Widget pushes supplement timelines. They do not guarantee immediate refresh. Silent pushes may be delayed or omitted, especially after force-quit. Keychain is unavailable until the first device unlock after reboot. Notification permission, Focus and sound settings affect buzzing. Offline widget actions remain in the App Group queue and retry on a later timeline/app opportunity. TestFlight installation, permissions, adding widgets, and visible/audible confirmation require the phone owner.
 

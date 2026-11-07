@@ -177,9 +177,37 @@ export const Action = z
     timestamp: z.iso.datetime(),
   })
   .strict();
+// A reminder page is shared by every paired device. keepUntil is an absolute
+// expiry; omitting it keeps the page until an agent deletes it.
+export const PageWrite = z
+  .object({
+    id,
+    title: z.string().min(1).max(200),
+    markdown: text,
+    keepUntil: z.iso.datetime().optional(),
+  })
+  .strict();
+export const Page = PageWrite.safeExtend({
+  updatedAt: z.iso.datetime(),
+});
+export const PageList = z
+  .object({
+    pages: z.array(Page),
+  })
+  .strict();
+export const NotifyRequest = z
+  .object({
+    deviceId: z.string().optional(),
+    silent: z.boolean().default(false),
+    title: z.string().max(200).optional(),
+    body: z.string().max(2000).optional(),
+    pageId: id.optional(),
+  })
+  .strict();
 export type UIBlock = z.infer<typeof Block>;
 export type AppState = z.infer<typeof State>;
 export type ActivityData = z.infer<typeof ActivityContent>;
+export type PageRecord = z.infer<typeof Page>;
 export const initialContent: z.input<typeof Content> = {
   schemaVersion: 1,
   blocks: [

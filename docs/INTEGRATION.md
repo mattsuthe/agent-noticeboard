@@ -11,8 +11,16 @@ curl -fsS "$RELAY_URL/widget" -H "Authorization: Bearer $BOT_TOKEN" \
   -d '{"kind":"metric","data":{"label":"Tasks completed","value":"3","delta":"+1","color":"#007AFF"}}'
 curl -fsS "$RELAY_URL/notify" -H "Authorization: Bearer $BOT_TOKEN" \
   -H 'Content-Type: application/json' -d '{"title":"Your agent","body":"Your report is ready."}'
+curl -fsS "$RELAY_URL/pages" -X POST -H "Authorization: Bearer $BOT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"briefing","title":"Morning briefing","markdown":"## Today\n\nReview the queue."}'
+curl -fsS "$RELAY_URL/notify" -H "Authorization: Bearer $BOT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Briefing","body":"Your page is ready.","pageId":"briefing"}'
 curl -fsS "$RELAY_URL/actions?cursor=0&limit=50" -H "Authorization: Bearer $BOT_TOKEN"
 ```
+
+`pageId` on `/notify` must name a page already stored with `POST /pages`. Tapping that notification opens the page. `GET /pages` lists pages for the bot or a paired phone, and `DELETE /pages/:id` removes one. Optional `keepUntil` is an ISO datetime after which the page is no longer readable.
 
 Persist the returned nextCursor after processing events. Route actionId to an allowlisted handler. Multiple agents may share the relay, but all share one dashboard and the same bot-level authority. Use separate deployments for trust isolation; this is not a multi-tenant authorization system. Coordinate writes using the revision field and retry HTTP 409 by reading and merging. Polling requires no inbound server on the agent; optional HMAC-signed webhooks are described in OPERATIONS.md.
 

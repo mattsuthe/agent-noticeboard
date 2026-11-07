@@ -146,6 +146,11 @@ export default function Home() {
         </Link>
       </View>
       <Text style={s.muted}>YOUR AGENTS, AT A GLANCE</Text>
+      {state && (
+        <Link href="/pages" style={{ color: colors.accent }}>
+          Pages  ›
+        </Link>
+      )}
       {message !== "" && (
         <Text accessibilityRole="alert" style={s.error}>
           {message}

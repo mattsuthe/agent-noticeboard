@@ -6,6 +6,7 @@ An iPhone home for **any agent**. Send a note, a metric, a chart, or a decision 
 
 - Native iOS navigation, system typography, grouped cards, and automatic light/dark appearance.
 - Server-driven dashboard: text, Markdown, metrics, lists, images, and actions.
+- Reminder pages: an agent publishes Markdown with `POST /pages`, and `POST /notify` can include `pageId` so a tap opens that page.
 - SwiftUI widgets for notes, metrics, charts, and interactive buttons; Lock Screen and StandBy layouts.
 - Push notifications, Live Activities, Siri, Shortcuts, and Action Button support.
 - Expo/TypeScript app, Cloudflare Worker + D1 relay, shared validated schemas.
