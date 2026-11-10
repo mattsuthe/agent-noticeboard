@@ -366,3 +366,27 @@ verify each reaches the intended agent with its original report, then update the
 source report and confirm a previously opened snapshot still sends its original
 context. The smoke script now creates a feedback event, so use an isolated relay
 or coordinate with the operator before running it against a live bot.
+
+## Public source scrub
+
+Before pushing a public branch, commit locally and run:
+
+```sh
+node --test scripts/tests/public-scrub.test.mjs
+node scripts/public-scrub.mjs origin/main HEAD
+```
+
+The scanner checks full contents of changed files, including workflows, and
+filenames. Invalid revisions or unreadable files fail closed. Diagnostics report
+categories only, never matching lines, filenames or marker values. An initial
+push with an all-zero base scans the entire tracked tree. Local checks must run
+before publication: a public CI check cannot undo an already-public upload.
+
+The Public scrub workflow repeats these checks on pull requests and main pushes.
+Optional `PUBLIC_SCRUB_MARKERS` holds deployment-specific identifiers, one per
+line, in repository secrets; supply the same environment variable locally from
+a private secret store. Without it (including fork PRs), the scanner explicitly
+reports generic-only coverage. Never switch to `pull_request_target` to expose
+secrets to untrusted PR code. This pattern scan supplements review; it cannot
+recognize all personal report content. Review scanner/workflow changes themselves
+and scrub every port with the private export tool before any public push.
