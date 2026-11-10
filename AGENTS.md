@@ -12,3 +12,14 @@ This project works with any agent via HTTP; no model provider is built in.
 8. A setup is complete only after TestFlight installation, pairing, push, widget refresh/action, Live Activity and OTA verification. Do not claim completion based only on a green build.
 
 Public template and personal deployments have separate histories. Keep deployment IDs and account-specific changes in the operator's own repository. See app/AGENTS.md for Expo-specific rules.
+
+## Receiving feedback and actions
+
+Every deployed installation needs a receiver, not only permission to publish.
+Read docs/INTEGRATION.md's Action receiver setup. Use the model-neutral
+`relay/scripts/consume-actions.mjs` polling bridge when no webhook exists. Install
+a trusted local handler that receives JSON on stdin, routes `report-feedback` to
+agentId (or the default assistant), and includes the complete report snapshot.
+Persist/deduplicate event IDs in the handler; never run message text as shell code.
+Confirm a real feedback event reached the intended agent before claiming delivery
+works. HTTP 202 confirms relay acceptance only. Preserve other action handlers.
