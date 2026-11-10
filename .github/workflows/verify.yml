@@ -32,6 +32,8 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - name: Verify native widget selection and snapshot decoding
+        run: node scripts/test-widget-selection.mjs
       - run: npx expo prebuild --platform ios --no-install
         working-directory: app
       - run: pod install

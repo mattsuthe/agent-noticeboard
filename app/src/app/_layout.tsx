@@ -21,6 +21,8 @@ Notifications.setNotificationHandler({
     shouldSetBadge: false,
   }),
 });
+export const unstable_settings = { initialRouteName: "index" };
+
 export default function Layout() {
   const dark = useColorScheme() === "dark";
   const response = Notifications.useLastNotificationResponse();

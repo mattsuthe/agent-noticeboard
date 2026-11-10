@@ -54,11 +54,16 @@ export const Block = z.discriminatedUnion("type", [
     })
     .strict(),
 ]);
+// Stable page id used in URLs, notification payloads, and read-only widgets.
+export const PageId = z
+  .string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/);
 export const BotCard = z
   .object({
     title: z.string().max(200),
     body: text,
     timestamp: z.iso.datetime(),
+    pageId: PageId.optional(),
   })
   .strict();
 export const Metric = z
@@ -67,6 +72,7 @@ export const Metric = z
     value: z.string().max(100),
     delta: z.string().max(100).optional(),
     color: color.default("#72E4B4"),
+    pageId: PageId.optional(),
   })
   .strict();
 export const ButtonGrid = z
@@ -88,8 +94,26 @@ export const Chart = z
     target: z.number().finite().optional(),
     color: color.default("#72E4B4"),
     points: z.array(ChartPoint).max(30),
+    pageId: PageId.optional(),
   })
   .strict();
+// Named widget content is separate from the four backwards-compatible defaults.
+export const WidgetKind = z.enum(["botCard", "metric", "chart", "buttonGrid"]);
+export const WidgetInstanceWrite = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("botCard"), data: BotCard }).strict(),
+  z.object({ kind: z.literal("metric"), data: Metric }).strict(),
+  z.object({ kind: z.literal("chart"), data: Chart }).strict(),
+  z.object({ kind: z.literal("buttonGrid"), data: ButtonGrid }).strict(),
+]);
+export const WidgetInstance = z.object({
+  id: PageId,
+  name: z.string().trim().min(1).max(80),
+  agentId: PageId.optional(),
+  revision: z.number().int().positive(),
+  updatedAt: z.iso.datetime(),
+}).and(WidgetInstanceWrite);
+export const WidgetCatalog = z.array(WidgetInstance).max(100);
+export type NamedWidget = z.infer<typeof WidgetInstance>;
 // Parsed when `chart` is omitted. This exact placeholder is not written to D1,
 // so documents saved before charts still match clients that reject unknown keys.
 export const emptyChart = {
@@ -134,6 +158,7 @@ export function contentForStorage(content: z.infer<typeof Content>) {
   };
 }
 export const State = Content.safeExtend({
+  widgetInstances: WidgetCatalog.optional(),
   revision: z.number().int().nonnegative(),
   updatedAt: z.iso.datetime(),
 });
@@ -174,20 +199,36 @@ export const Action = z
     id: z.uuid(),
     actionId: id,
     source: z.enum(["app", "widget"]),
+    widgetId: PageId.optional(),
     timestamp: z.iso.datetime(),
   })
   .strict();
 // A reminder page is shared by every paired device. keepUntil is an absolute
 // expiry; omitting it keeps the page until an agent deletes it.
+export const FeedbackContext = z.object({
+  sourcePageId: z.string().min(1).max(128).optional(),
+  agentId: PageId.optional(),
+  widgetId: PageId.optional(),
+  widgetKind: WidgetKind.optional(),
+  widgetRevision: z.number().int().positive().optional(),
+}).strict();
+export const FeedbackRequest = z.object({
+  id: z.uuid(),
+  pageId: z.string().min(1).max(128),
+  pageUpdatedAt: z.iso.datetime(),
+  text: z.string().trim().min(1).max(4000),
+}).strict();
 export const PageWrite = z
   .object({
     id,
+    agentId: PageId.optional(),
     title: z.string().min(1).max(200),
     markdown: text,
     keepUntil: z.iso.datetime().optional(),
   })
   .strict();
 export const Page = PageWrite.safeExtend({
+  feedbackContext: FeedbackContext.optional(),
   updatedAt: z.iso.datetime(),
 });
 export const PageList = z
@@ -204,6 +245,34 @@ export const NotifyRequest = z
     pageId: id.optional(),
   })
   .strict();
+/** Page id from a read-only widget tap. Accepts the widget URL or a bare `/page/<id>` path. */
+export function pageIdFromWidgetURL(value: unknown) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 300) return null;
+  let path = trimmed;
+  if (trimmed.includes("://")) {
+    let url: URL;
+    try {
+      url = new URL(trimmed);
+    } catch {
+      return null;
+    }
+    if (url.protocol !== "agentnoticeboard:") return null;
+    if (url.username || url.password) return null;
+    path = `${url.hostname}${url.pathname}`;
+  }
+  const match = /^\/?page\/([^/]+)$/.exec(path);
+  if (!match) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+  const parsed = PageId.safeParse(decoded);
+  return parsed.success ? parsed.data : null;
+}
 export type UIBlock = z.infer<typeof Block>;
 export type AppState = z.infer<typeof State>;
 export type ActivityData = z.infer<typeof ActivityContent>;

@@ -195,3 +195,174 @@ Physical acceptance: install internal TestFlight, pair, allow alerts, confirm `/
 Widget pushes supplement timelines. They do not guarantee immediate refresh. Silent pushes may be delayed or omitted, especially after force-quit. Keychain is unavailable until the first device unlock after reboot. Notification permission, Focus and sound settings affect buzzing. Offline widget actions remain in the App Group queue and retry on a later timeline/app opportunity. TestFlight installation, permissions, adding widgets, and visible/audible confirmation require the phone owner.
 
 References: [EAS submission](https://docs.expo.dev/submit/ios/), [fingerprint deployment workflow](https://docs.expo.dev/eas/workflows/examples/deploy-to-production/), [WidgetKit pushes](https://developer.apple.com/documentation/widgetkit/updating-widgets-with-widgetkit-push-notifications), [Expo native subscribers](https://docs.expo.dev/modules/appdelegate-subscribers/).
+
+## Independent named widgets (configurable-widget build)
+
+The four original widget kinds remain defaults. There is also a catalog of up to
+100 named widgets total (any mix of `botCard`, `metric`, `chart`, `buttonGrid`).
+This is an application limit, not a claim about how many widgets iOS can place.
+All paired devices share the catalog; each placed widget selects its own content.
+Content changes, names, buttons and detail pages are data updates. Adding a new
+native widget layout or system capability still requires an EAS build.
+
+On iPhone, sync the app, add a Noticeboard widget, press and hold it → **Edit
+Widget** → **Content**, and choose a named item of that type. Repeat for different
+cards or graphs. Existing placements keep **Default**. A deleted selection shows
+unavailable until the user selects something else. Agent cannot place widgets or
+change iOS permissions remotely. Home's Widget library previews named content.
+
+### Catalog API
+
+Use the same BOT_TOKEN and RELAY_URL as above. `GET /widgets` is also available to
+paired devices with their bearer secret and X-Device-ID. Mutations are bot-only.
+
+```bash
+# Create an independent graph. revision:0 means create only.
+curl -fsS "$RELAY_URL/widget" -H "Authorization: Bearer $BOT_TOKEN" \
+  -H 'Content-Type: application/json' -d '{
+    "id":"weekly-revenue","name":"Weekly revenue","revision":0,"kind":"chart",
+    "data":{"title":"Revenue","unit":"USD","points":[
+      {"label":"Mon","value":1200},{"label":"Tue","value":1700}
+    ]}
+  }'
+# Discover every named widget, including revision and snapshot detail links.
+curl -fsS "$RELAY_URL/widgets" -H "Authorization: Bearer $BOT_TOKEN"
+# Update only this graph (use its current revision from GET /widgets).
+curl -fsS "$RELAY_URL/widget" -H "Authorization: Bearer $BOT_TOKEN" \
+  -H 'Content-Type: application/json' -d '{
+    "id":"weekly-revenue","name":"Weekly revenue","revision":1,"kind":"chart",
+    "data":{"title":"Revenue","unit":"USD","points":[
+      {"label":"Mon","value":1200},{"label":"Tue","value":1800}
+    ]}
+  }'
+# Remove it; this deliberately makes placements selecting it unavailable.
+curl -fsS -X DELETE "$RELAY_URL/widgets/weekly-revenue?revision=2" \
+  -H "Authorization: Bearer $BOT_TOKEN"
+```
+
+`POST /widget` with `id` requires `name` and `revision`. The ID must match
+`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`; name is 1–80 trimmed characters. Data uses
+exactly the existing widget shapes documented above. Kind is immutable for an ID.
+Updates replace that item's entire data, not a merge patch. Successful writes
+return HTTP 202 `{id,revision,status:"queued",jobs}`; changes queue the existing
+throttled, coalesced widget refresh push. HTTP 409 means stale revision, wrong
+kind, duplicate create, or the 100-item limit; fetch the catalog before retrying.
+DELETE requires the current revision, returns `{deleted:true,jobs}`, and also
+queues a refresh. Keep IDs stable when renaming; avoid reusing retired IDs for
+unrelated content. Multiple copies may select the same ID intentionally.
+
+Omitting `id` preserves the original POST /widget behavior, updating the default
+of that kind. POST /state operates only on defaults and Home blocks; it never
+replaces or clears the named catalog. GET /state remains byte-shape compatible
+with older clients. New app/native clients request `/state?widgets=1`, which adds
+`widgetInstances: [{id,name,kind,data,revision,updatedAt}]` and default widget snapshot links. Plain GET /state does not generate new links for pre-upgrade clients. Do not send that
+response-only field in POST /state. GET /widgets returns `{widgets:[...]}`.
+
+Card, metric and graph taps retain immutable snapshot detail links. Explicit
+`data.pageId` links to an agent-authored rich page; otherwise the relay generates
+one from the displayed content. A later update gets its own snapshot link.
+Named Button Grid taps include `widgetId` in POST /action, GET /actions and the
+HMAC-signed webhook payload, alongside actionId and source. Choose globally
+meaningful action IDs; the existing Siri/Shortcuts button chooser also discovers
+named grids but resolves actions by actionId (deduplicating shared IDs).
+
+### Native capability boundary
+
+Agent can currently publish Home blocks, default/named widgets, snapshot pages,
+notifications and Live Activities, and receive app/widget/Shortcuts actions.
+The widget catalog is deliberately data-driven: publishing new items in those
+supported shapes needs no app release. Arbitrary Swift, new system permissions,
+new widget families/layouts or new native integrations require reviewed code and
+a new TestFlight binary. Native selection uses Apple's AppIntentConfiguration:
+https://developer.apple.com/documentation/widgetkit/making-a-configurable-widget
+
+Acceptance for this build: place two cards and two graphs, select different
+content on each, update one ID and verify the other is unchanged, tap each into
+its own details, run a named grid button and confirm widgetId in GET /actions,
+then delete an item and verify its placement shows unavailable. Existing default
+widgets, pairing, notification taps and Live Activities must still work.
+
+## Report feedback and agent routing
+
+Every report screen has a feedback field below the report. Sending preserves the
+message on error and uses an idempotency UUID when retrying. The relay attaches
+trusted report content; the client cannot substitute an agent or another report's
+body. This sends a message, not an executable action or trading order.
+
+To route a named widget's feedback, include top-level `agentId` when creating it:
+
+```json
+{"id":"trader-report","name":"Trading report","agentId":"trader","revision":0,
+ "kind":"botCard","data":{"title":"Trading report","body":"Summary",
+ "timestamp":"2026-11-09T00:00:00Z","pageId":"trader-report-source"}}
+```
+
+Publish the source first with `POST /pages` using `{id,title,markdown,agentId}`.
+For named widgets, the relay snapshots authored pages along with widget ID, kind,
+revision, source page ID and agent ID. Subsequent source edits do not rewrite the
+report someone already opened. A named widget's agentId overrides its source
+page's agentId. Omitting agentId on a named-widget update preserves its existing
+recipient. Round-tripping the generated detail link on POST /widget preserves
+its authored source link. A directly opened page (including a default widget's
+explicit pageId) uses the page's own agentId.
+
+`GET /pages/:id?feedback=1` adds `feedbackContext` with available `agentId`,
+`widgetId`, `widgetKind`, `widgetRevision`, and `sourcePageId`. Omit the query to
+retain the legacy response shape. Native/app state remains compatible with the
+first configurable-widget build: agent routing metadata is only exposed through
+GET /widgets and the opt-in page response.
+
+`POST /feedback` requires device credentials (bot credentials alone are rejected):
+
+```bash
+curl -fsS "$RELAY_URL/feedback" -H "Authorization: Bearer $DEVICE_SECRET" \
+  -H "X-Device-ID: $DEVICE_ID" -H 'Content-Type: application/json' -d '{
+    "id":"00000000-0000-4000-8000-000000000123",
+    "pageId":"REPORT_ID_FROM_GET",
+    "pageUpdatedAt":"EXACT_UPDATED_AT_FROM_GET",
+    "text":"Explain the downside assumptions in more detail."
+  }'
+```
+
+Text is trimmed and must contain 1–4,000 characters. HTTP 202 returns
+`{accepted:true,id,delivery:"webhook"|"polling"}`. Reuse the same UUID only for a
+retry of the identical message/report version. Conflicting reuse or a changed
+report returns 409; missing/expired reports return 404. The app retains the
+message on failure. For directly authored mutable pages, refresh before retrying
+if the report version changed.
+
+Feedback is stored in the existing action log and, when configured, forwarded
+through WEBHOOK_URL with the existing HMAC signature/retry mechanism. Example:
+
+```json
+{"id":"EVENT_UUID","actionId":"report-feedback","source":"app",
+ "deviceId":"DEVICE_ID","timestamp":"SERVER_TIMESTAMP",
+ "agentId":"trader","widgetId":"trader-report","widgetKind":"botCard",
+ "widgetRevision":1,"sourcePageId":"trader-report-source",
+ "feedback":{"text":"Explain the downside assumptions in more detail.",
+ "page":{"id":"SNAPSHOT_ID","title":"Trading report",
+ "markdown":"THE_REPORT_THE_USER_READ","updatedAt":"REPORT_TIMESTAMP"}}}
+```
+
+Optional context fields are absent for older/default reports lacking them.
+Without WEBHOOK_URL and WEBHOOK_SECRET, the agent must poll
+`GET /actions?cursor=LAST_CURSOR&limit=100`, persist the returned cursor after
+handling events, and deduplicate UUIDs. Route `report-feedback` to the configured
+agentId, passing both feedback.text and feedback.page. If agentId is absent,
+use the installation's default assistant. Displaying “submitted” only confirms
+relay acceptance, not that an agent has read or acted on the message.
+
+Agent setup instruction:
+
+> Pull the latest integration docs. Consume /actions using a durable cursor and
+> handle actionId=report-feedback as a user message. Route agentId=trader to the
+> trading agent, include the full feedback.page snapshot and widget metadata,
+> and deduplicate the event ID. Tag my trader widgets/pages with agentId=trader.
+> Preserve the existing action handlers. Confirm receipt with a notification
+> linked to a reply page; do not place a trade solely because feedback arrived.
+
+Physical check: open two different reports and send different feedback on each;
+verify each reaches the intended agent with its original report, then update the
+source report and confirm a previously opened snapshot still sends its original
+context. The smoke script now creates a feedback event, so use an isolated relay
+or coordinate with the operator before running it against a live bot.

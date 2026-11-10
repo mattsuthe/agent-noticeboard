@@ -10,7 +10,13 @@ import {
   PageWrite,
   Tokens,
   Widgets,
+  WidgetInstanceWrite,
+  FeedbackRequest,
+  PageId,
 } from "../../shared/schema";
+import { generatedWidgetPage, withWidgetPages, namedWidgetPages } from "./widget-pages";
+import { reportFeedback, feedbackContextForPage } from "./feedback";
+import { widgetCatalog } from "./widget-catalog";
 import { equal, hash, mergePatch, secret } from "./security";
 import { drain, jobStatement } from "./outbox";
 import type { Device, Env, Push } from "./types";
@@ -127,6 +133,13 @@ async function state(env: Env) {
 }
 async function setState(env: Env, content: unknown, revision: number) {
   const stored = contentForStorage(Content.parse(content));
+  // Agents may round-trip GET /state. Derived snapshot links must not stick
+  // to new content when they patch or replace that response.
+  for (const kind of ["botCard", "metric", "chart"] as const) {
+    const widget = (stored.widgets as Partial<z.infer<typeof Widgets>>)[kind];
+    if (widget && generatedWidgetPage(widget.pageId)) delete widget.pageId;
+  }
+
   const updatedAt = new Date().toISOString();
   const result = await env.DB.prepare(
     "UPDATE state SET content=?,revision=revision+1,updated_at=? WHERE id=1 AND revision=?",
@@ -253,7 +266,22 @@ async function handle(
   }
   if (path === "/state" && method === "GET") {
     await reader(req, env);
-    return json(await state(env));
+    const current = await state(env);
+    // Pre-widget-link template builds strictly validate the default widgets.
+    // Only upgraded clients opt into generated links and the named catalog.
+    if (new URL(req.url).searchParams.get("widgets") !== "1") return json(current);
+    const snapshot = await withWidgetPages(env, current);
+    return json({ ...snapshot, widgetInstances: (await namedWidgetPages(env, await widgetCatalog(env))).map(({ agentId: _agentId, ...item }) => item) });
+  }
+  if (path === "/widgets" && method === "GET") {
+    await reader(req, env);
+    return json({ widgets: await namedWidgetPages(env, await widgetCatalog(env)) });
+  }
+  if (path === "/feedback" && method === "POST") {
+    const d = await device(req, env);
+    const result = await reportFeedback(env, d.id, FeedbackRequest.parse(await body(req)));
+    ctx.waitUntil(drain(env));
+    return json(result.body, result.status);
   }
   if (path === "/action" && method === "POST") {
     const d = await device(req, env);
@@ -289,7 +317,8 @@ async function handle(
     const id = routePageId(path);
     const row = id ? await visiblePage(env, id) : null;
     if (!row) fail(404, "Page not found");
-    return json(storedPage(row!));
+    return json(new URL(req.url).searchParams.get("feedback") === "1"
+      ? { ...storedPage(row!), feedbackContext: await feedbackContextForPage(env, row!.id) } : storedPage(row!));
   }
   await bot(req, env);
   if (path === "/pages" && method === "POST") {
@@ -299,9 +328,9 @@ async function handle(
     if (keepUntil != null && !Number.isFinite(keepUntil))
       fail(400, "Invalid keepUntil");
     await env.DB.prepare(
-      "INSERT INTO pages(id,title,markdown,keep_until,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,markdown=excluded.markdown,keep_until=excluded.keep_until,updated_at=excluded.updated_at",
+      "INSERT INTO pages(id,title,markdown,keep_until,updated_at,feedback_context) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,markdown=excluded.markdown,keep_until=excluded.keep_until,updated_at=excluded.updated_at,feedback_context=excluded.feedback_context",
     )
-      .bind(input.id, input.title, input.markdown, keepUntil, updatedAt)
+      .bind(input.id, input.title, input.markdown, keepUntil, updatedAt, JSON.stringify(input.agentId ? { agentId: input.agentId } : {}))
       .run();
     const row = await env.DB.prepare(
       "SELECT id,title,markdown,keep_until,updated_at FROM pages WHERE id=?",
@@ -377,14 +406,47 @@ async function handle(
     ctx.waitUntil(drain(env));
     return json({ state: result, jobs });
   }
+  if (path.startsWith("/widgets/") && method === "DELETE") {
+    const id = PageId.parse(path.slice("/widgets/".length));
+    const revision = z.coerce.number().int().positive().parse(new URL(req.url).searchParams.get("revision"));
+    const result = await env.DB.prepare("DELETE FROM widget_instances WHERE id=? AND revision=?").bind(id, revision).run();
+    if (!result.meta.changes) fail(409, "Widget missing or revision conflict; fetch /widgets and retry");
+    const jobs = await widgetPush(env);
+    ctx.waitUntil(drain(env));
+    return json({ deleted: true, jobs });
+  }
   if (path === "/widget" && method === "POST") {
     const input = z
       .object({
         kind: z.enum(["botCard", "metric", "buttonGrid", "chart"]),
         data: z.unknown(),
+        id: PageId.optional(),
+        name: z.string().trim().min(1).max(80).optional(),
+        agentId: PageId.optional(),
+        revision: z.number().int().nonnegative().optional(),
       })
       .strict()
       .parse(await body(req));
+    if (input.id) {
+      if (!input.name || input.revision === undefined) fail(400, "Named widgets require name and revision (0 to create)");
+      const parsed = WidgetInstanceWrite.parse({ kind: input.kind, data: input.data });
+      if (parsed.kind !== "buttonGrid" && generatedWidgetPage(parsed.data.pageId)) {
+        const context = await feedbackContextForPage(env, parsed.data.pageId!);
+        if (context.sourcePageId) parsed.data.pageId = context.sourcePageId;
+        else delete parsed.data.pageId;
+      }
+      const stamp = new Date().toISOString();
+      const result = input.revision === 0
+        ? await env.DB.prepare("INSERT OR IGNORE INTO widget_instances(id,name,kind,data,revision,updated_at,agent_id) SELECT ?,?,?,?,1,?,? WHERE (SELECT count(*) FROM widget_instances)<100")
+          .bind(input.id, input.name, parsed.kind, JSON.stringify(parsed.data), stamp, input.agentId ?? null).run()
+        : await env.DB.prepare("UPDATE widget_instances SET name=?,data=?,revision=revision+1,updated_at=?,agent_id=COALESCE(?,agent_id) WHERE id=? AND kind=? AND revision=?")
+          .bind(input.name, JSON.stringify(parsed.data), stamp, input.agentId ?? null, input.id, parsed.kind, input.revision).run();
+      if (!result.meta.changes) fail(409, "Widget revision/kind conflict or catalog limit (100); fetch /widgets and retry");
+      const jobs = await widgetPush(env);
+      ctx.waitUntil(drain(env));
+      return json({ id: input.id, revision: input.revision! + 1, jobs, status: "queued" }, 202);
+    }
+    if (input.name !== undefined || input.revision !== undefined || input.agentId !== undefined) fail(400, "name/revision require a widget id");
     const current = await state(env);
     const { revision, updatedAt, ...content } = current;
     const widgets = Widgets.parse({

@@ -41,6 +41,122 @@ beforeAll(async () => {
     await e.DB.prepare(sql).run();
 });
 describe("relay integration", () => {
+  it("sends feedback to the report's agent with immutable widget context and idempotent retries", async () => {
+    const pairing = await (await call("/pairings", "POST", {})).json<any>();
+    const enrollment = await (await call("/register", "POST", { pairingCode: pairing.code }, {})).json<any>();
+    const headers = { authorization: `Bearer ${enrollment.secret}`, "x-device-id": enrollment.deviceId };
+    const page = { id: "trader-feedback-report", title: "Trading report", markdown: "Original thesis", agentId: "trader" };
+    expect((await call("/pages", "POST", page)).status).toBe(200);
+    expect((await call("/widget", "POST", { id: "trader-feedback-card", name: "Trader", agentId: "trader", kind: "botCard", revision: 0, data: { title: "Trade report", body: "Summary", timestamp: "2026-11-09T00:00:00Z", pageId: page.id } })).status).toBe(202);
+    const catalog = await (await call("/widgets")).json<any>();
+    const widget = catalog.widgets.find((w: any) => w.id === "trader-feedback-card");
+    expect(widget.agentId).toBe("trader");
+    expect(widget.data.pageId).not.toBe(page.id);
+    const openedResponse = await (await call(`/pages/${widget.data.pageId}?feedback=1`, "GET", undefined, headers)).json<any>();
+    const opened = openedResponse;
+    expect(opened.feedbackContext).toMatchObject({ agentId: "trader", widgetId: widget.id, widgetRevision: 1, sourcePageId: page.id });
+    const legacyResponse = await (await call(`/pages/${widget.data.pageId}`, "GET", undefined, headers)).json<any>();
+    expect(legacyResponse.feedbackContext).toBeUndefined();
+    // Updating the source must not change the already-opened snapshot.
+    await call("/pages", "POST", { ...page, markdown: "New thesis", agentId: "other-agent" });
+    const input = { id: crypto.randomUUID(), pageId: opened.id, pageUpdatedAt: opened.updatedAt, text: "Reduce position size" };
+    expect((await call("/feedback", "POST", input, {})).status).toBe(401);
+    expect((await call("/feedback", "POST", input)).status).toBe(401);
+    expect((await call("/feedback", "POST", { ...input, agentId: "spoofed" }, headers)).status).toBe(400);
+    expect((await call("/feedback", "POST", { ...input, text: "   " }, headers)).status).toBe(400);
+    expect((await call("/feedback", "POST", { ...input, text: "x".repeat(4001) }, headers)).status).toBe(400);
+    const originalURL = e.WEBHOOK_URL, originalSecret = e.WEBHOOK_SECRET;
+    e.WEBHOOK_URL = "https://agent.example/feedback"; e.WEBHOOK_SECRET = "test-feedback-hmac";
+    const delivered: { body: string; headers: Record<string, string> }[] = [];
+    const mock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      delivered.push({ body: String(init?.body), headers: init?.headers as Record<string, string> });
+      return new Response(null, { status: 200 });
+    });
+    try {
+      expect((await call("/feedback", "POST", input, headers)).status).toBe(202);
+      expect((await call("/feedback", "POST", input, headers)).status).toBe(202);
+      expect((await call("/feedback", "POST", { ...input, text: "Changed retry" }, headers)).status).toBe(409);
+      const payloads = delivered.filter(d => JSON.parse(d.body).id === input.id);
+      expect(payloads).toHaveLength(1);
+      const event = JSON.parse(payloads[0].body);
+      expect(event).toMatchObject({ actionId: "report-feedback", agentId: "trader", widgetId: widget.id, widgetRevision: 1, feedback: { text: input.text, page: { title: page.title, markdown: "Original thesis" } } });
+      const timestamp = payloads[0].headers["x-agent-timestamp"];
+      expect(payloads[0].headers["x-agent-signature"]).toBe(await signature(e.WEBHOOK_SECRET, timestamp, payloads[0].body));
+      const actions = await (await call("/actions")).json<any>();
+      expect(actions.actions.filter((a: any) => a.id === input.id)).toHaveLength(1);
+    } finally { mock.mockRestore(); e.WEBHOOK_URL = originalURL; e.WEBHOOK_SECRET = originalSecret; }
+    expect((await call("/feedback", "POST", { ...input, id: crypto.randomUUID(), pageId: "missing-feedback-page" }, headers)).status).toBe(404);
+    expect((await call("/feedback", "POST", { ...input, id: crypto.randomUUID(), pageUpdatedAt: "2020-01-01T00:00:00Z" }, headers)).status).toBe(409);
+    // A round-tripped derived link still follows the rich source page on the next update.
+    expect((await call("/widget", "POST", { id: widget.id, name: widget.name, kind: widget.kind, revision: 1, data: widget.data })).status).toBe(202);
+    const latest = (await (await call("/widgets")).json<any>()).widgets.find((w: any) => w.id === widget.id);
+    const latestResponse = await (await call(`/pages/${latest.data.pageId}?feedback=1`)).json<any>();
+    expect(latestResponse.markdown).toBe("New thesis");
+    expect(latestResponse.feedbackContext.agentId).toBe("trader");
+    await call(`/widgets/${widget.id}?revision=2`, "DELETE");
+    await call(`/pages/${page.id}`, "DELETE");
+  });
+  it("manages independent named widgets without changing legacy state", async () => {
+    const pairing = await (await call("/pairings", "POST", {})).json<any>();
+    const enrollment = await (await call("/register", "POST", { pairingCode: pairing.code }, {})).json<any>();
+    const headers = { authorization: `Bearer ${enrollment.secret}`, "x-device-id": enrollment.deviceId };
+    expect((await call("/widgets", "GET", undefined, {})).status).toBe(401);
+    const legacy = await (await call("/state")).json<any>();
+    const make = (id: string, body: string) => ({ id, name: id, revision: 0, kind: "botCard", data: { title: id, body, timestamp: "2026-11-09T00:00:00Z" } });
+    expect((await call("/widget", "POST", make("briefing", "First card"), headers)).status).toBe(401);
+    for (const input of [make("briefing", "First card"), make("meeting", "Second card"),
+      { id: "revenue", name: "Revenue", revision: 0, kind: "chart", data: { title: "Revenue", points: [{ label: "Mon", value: 10 }] } },
+      { id: "training", name: "Training", revision: 0, kind: "chart", data: { title: "Training", points: [{ label: "Mon", value: 20 }] } },
+      { id: "controls", name: "Controls", revision: 0, kind: "buttonGrid", data: { buttons: [{ id: "run", label: "Run" }] } },
+      { id: "count", name: "Count", revision: 0, kind: "metric", data: { label: "Count", value: "3" } },
+    ]) expect((await call("/widget", "POST", input)).status).toBe(202);
+    expect(await (await call("/state")).json()).toEqual(legacy);
+    const enhanced = await (await call("/state?widgets=1", "GET", undefined, headers)).json<any>();
+    expect(State.safeParse(enhanced).success).toBe(true);
+    expect(enhanced.widgetInstances).toHaveLength(6);
+    expect(legacy.widgets.botCard.pageId).toBeUndefined();
+    expect(enhanced.widgets.botCard.pageId).toMatch(/^widget-botCard-/);
+    const catalog = await (await call("/widgets", "GET", undefined, headers)).json<any>();
+    const first = catalog.widgets.find((w: any) => w.id === "briefing");
+    const second = catalog.widgets.find((w: any) => w.id === "meeting");
+    expect(first.data.pageId).not.toBe(second.data.pageId);
+    expect((await (await call(`/pages/${first.data.pageId}`)).json<any>()).markdown).toBe("First card");
+    expect((await call("/widget", "POST", make("briefing", "Wrong"))).status).toBe(409);
+    expect((await call("/widget", "POST", { ...make("briefing", "Updated"), revision: 1, data: { ...first.data, body: "Updated" } })).status).toBe(202);
+    expect((await call("/widget", "POST", { ...make("briefing", "Stale"), revision: 1 })).status).toBe(409);
+    expect((await call("/widget", "POST", { id: "briefing", name: "Wrong type", revision: 2, kind: "metric", data: { label: "X", value: "1" } })).status).toBe(409);
+    expect((await call("/widget", "POST", { ...make("bad", "x"), data: { label: "invalid" } })).status).toBe(400);
+    const updated = await (await call("/widgets")).json<any>();
+    expect(updated.widgets.find((w: any) => w.id === "meeting")).toEqual(second);
+    expect(updated.widgets.find((w: any) => w.id === "briefing").data.pageId).not.toBe(first.data.pageId);
+    expect((await (await call(`/pages/${first.data.pageId}`)).json<any>()).markdown).toBe("First card");
+    const action = { id: crypto.randomUUID(), actionId: "run", widgetId: "controls", source: "widget", timestamp: new Date().toISOString() };
+    expect((await call("/action", "POST", action, headers)).status).toBe(202);
+    const actions = await (await call("/actions")).json<any>();
+    expect(actions.actions.find((a: any) => a.id === action.id).widgetId).toBe("controls");
+    expect((await call("/widgets/briefing?revision=2", "DELETE", undefined, headers)).status).toBe(401);
+    expect((await call("/widgets/briefing?revision=1", "DELETE")).status).toBe(409);
+    expect((await call("/widgets/briefing?revision=2", "DELETE")).status).toBe(200);
+    for (const item of updated.widgets.filter((w: any) => w.id !== "briefing"))
+      expect((await call(`/widgets/${item.id}?revision=${item.revision}`, "DELETE")).status).toBe(200);
+    expect((await (await call("/widgets")).json<any>()).widgets).toEqual([]);
+  });
+  it("serves a full 100-widget catalog and rejects overflow without blocking updates", async () => {
+    const data = { title: "Card", body: "Body", timestamp: "2026-11-09T00:00:00Z" };
+    await e.DB.batch(Array.from({ length: 100 }, (_, i) => e.DB.prepare(
+      "INSERT INTO widget_instances(id,name,kind,data,revision,updated_at) VALUES(?,?,'botCard',?,1,?)",
+    ).bind(`capacity-${i}`, `Card ${i}`, JSON.stringify({ ...data, body: `Body ${i}` }), data.timestamp)));
+    try {
+      const response = await call("/state?widgets=1");
+      expect(response.status).toBe(200);
+      const full = await response.json<any>();
+      expect(full.widgetInstances).toHaveLength(100);
+      expect(new Set(full.widgetInstances.map((w: any) => w.data.pageId)).size).toBe(100);
+      expect((await call("/widget", "POST", { id: "overflow", name: "Overflow", kind: "botCard", data, revision: 0 })).status).toBe(409);
+      expect((await call("/widget", "POST", { id: "capacity-0", name: "Renamed", kind: "botCard", data, revision: 1 })).status).toBe(202);
+    } finally { await e.DB.prepare("DELETE FROM widget_instances WHERE id LIKE 'capacity-%'").run(); }
+  });
+
   it("rejects unauthenticated access and protects bot endpoints from device credentials", async () => {
     expect((await call("/state", "GET", undefined, {})).status).toBe(401);
     const pairing = await (await call("/pairings", "POST", {})).json<any>();
