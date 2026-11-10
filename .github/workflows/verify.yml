@@ -20,6 +20,7 @@ jobs:
       - run: npm run lint --workspace app
       - run: npm run typecheck
       - run: npm test
+      - run: node --test scripts/tests/action-consumer.test.mjs
       - run: npm run test:configure
       - run: npx expo export --platform ios
         working-directory: app
@@ -32,6 +33,8 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - name: Verify native widget selection and snapshot decoding
+        run: node scripts/test-widget-selection.mjs
       - run: npx expo prebuild --platform ios --no-install
         working-directory: app
       - run: pod install

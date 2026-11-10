@@ -13,8 +13,8 @@ struct AgentActivityAttributes: ActivityAttributes {
  var activityId: String
 }
 struct AgentCredential: Codable { var relay: String; var deviceId: String; var secret: String }
-struct AgentCard: Codable { var title: String; var body: String; var timestamp: String }
-struct AgentMetric: Codable { var label: String; var value: String; var delta: String?; var color: String }
+struct AgentCard: Codable { var title: String; var body: String; var timestamp: String; var pageId: String? = nil }
+struct AgentMetric: Codable { var label: String; var value: String; var delta: String?; var color: String; var pageId: String? = nil }
 struct AgentChartPoint: Codable, Hashable { var label: String; var value: Double }
 struct AgentChart: Codable {
  var title: String
@@ -22,12 +22,48 @@ struct AgentChart: Codable {
  var target: Double?
  var color: String
  var points: [AgentChartPoint]
+ var pageId: String? = nil
  static let placeholder=AgentChart(title:"Chart",unit:"",target:nil,color:"#72E4B4",points:[])
 }
 struct AgentButton: Codable, Identifiable { var id: String; var label: String; var style: String? }
 struct AgentGrid: Codable { var prompt: String?; var buttons: [AgentButton] }
 struct AgentWidgets: Codable { var botCard: AgentCard; var metric: AgentMetric; var buttonGrid: AgentGrid; var chart: AgentChart? }
-struct AgentSnapshot: Codable { var schemaVersion: Int; var revision: Int; var updatedAt: String; var widgets: AgentWidgets }
+struct AgentWidgetInstance: Decodable {
+ var id: String; var name: String; var kind: String
+ var botCard: AgentCard?; var metric: AgentMetric?; var chart: AgentChart?; var buttonGrid: AgentGrid?
+ enum CodingKeys: String, CodingKey { case id, name, kind, data }
+ init(from decoder: Decoder) throws {
+  let c = try decoder.container(keyedBy: CodingKeys.self)
+  id = try c.decode(String.self, forKey: .id)
+  name = try c.decode(String.self, forKey: .name)
+  kind = try c.decode(String.self, forKey: .kind)
+  switch kind {
+  case "botCard": botCard = try c.decode(AgentCard.self, forKey: .data)
+  case "metric": metric = try c.decode(AgentMetric.self, forKey: .data)
+  case "chart": chart = try c.decode(AgentChart.self, forKey: .data)
+  case "buttonGrid": buttonGrid = try c.decode(AgentGrid.self, forKey: .data)
+  default: throw DecodingError.dataCorruptedError(forKey: .kind, in: c, debugDescription: "Unknown widget kind")
+  }
+ }
+}
+struct AgentSnapshot: Decodable {
+ var schemaVersion: Int; var revision: Int; var updatedAt: String; var widgets: AgentWidgets
+ var widgetInstances: [AgentWidgetInstance]?
+ // A removed selection must never silently show a different card or action grid.
+ func selecting(_ id: String?, kind: String) -> AgentSnapshot? {
+  guard let id, id != "__default__" else { return self }
+  guard let item = widgetInstances?.first(where: { $0.id == id && $0.kind == kind }) else { return nil }
+  var result = self
+  switch kind {
+  case "botCard": guard let value = item.botCard else { return nil }; result.widgets.botCard = value
+  case "metric": guard let value = item.metric else { return nil }; result.widgets.metric = value
+  case "chart": guard let value = item.chart else { return nil }; result.widgets.chart = value
+  case "buttonGrid": guard let value = item.buttonGrid else { return nil }; result.widgets.buttonGrid = value
+  default: return nil
+  }
+  return result
+ }
+}
 enum AgentError: Error { case unpaired, invalidURL, invalidResponse, sharedStorageUnavailable, keychain(OSStatus) }
 public struct AgentActionChoice: Sendable, Hashable { public var id:String; public var label:String; public init(id:String,label:String){self.id=id;self.label=label} }
 public enum AgentActionError: Error, Sendable { case unpaired, missingAction }
@@ -74,25 +110,28 @@ public enum AgentShared {
  static func snapshot() -> AgentSnapshot? { guard let data=try? Data(contentsOf:directory.appendingPathComponent("state.json")) else{return nil};return try? JSONDecoder().decode(AgentSnapshot.self,from:data) }
  public static func currentButtons() -> [AgentActionChoice] {
   var seen=Set<String>()
-  return (snapshot()?.widgets.buttonGrid.buttons ?? []).compactMap { button in
+  let current = snapshot()
+  let buttons = (current?.widgets.buttonGrid.buttons ?? []) + (current?.widgetInstances ?? []).flatMap { $0.buttonGrid?.buttons ?? [] }
+  return buttons.compactMap { button in
    guard seen.insert(button.id).inserted else { return nil }
    return AgentActionChoice(id:button.id,label:button.label)
   }
  }
- static func refresh() async throws { let data=try await request("/state");try save(data);try await flushActions();try await registerCachedWidgetToken() }
+ static func refresh() async throws { let data=try await request("/state?widgets=1");try save(data);try await flushActions();try await registerCachedWidgetToken() }
  static func register(_ tokens:[String:Any]) async throws { _=try await request("/register",body:["tokens":tokens]) }
  static func registerCachedWidgetToken() async throws { if let token=defaults.string(forKey:"widgetPushToken") { try await register(["widget":token]) } }
- static func sendAction(_ id:String) async throws {
-  let event:[String:Any] = ["id":UUID().uuidString.lowercased(),"actionId":id,"source":"widget","timestamp":ISO8601DateFormatter().string(from:Date())]
+ static func sendAction(_ id:String, widgetId:String? = nil) async throws {
+  var event:[String:Any] = ["id":UUID().uuidString.lowercased(),"actionId":id,"source":"widget","timestamp":ISO8601DateFormatter().string(from:Date())]
+  if let widgetId, widgetId != "__default__" { event["widgetId"] = widgetId }
   let data=try JSONSerialization.data(withJSONObject:event)
   let pending=try directory.appendingPathComponent("actions",isDirectory:true);try FileManager.default.createDirectory(at:pending,withIntermediateDirectories:true)
   let file=pending.appendingPathComponent("\(event["id"]!).json");try data.write(to:file,options:.atomic)
   _=try await request("/action",body:event);try? FileManager.default.removeItem(at:file)
  }
- public static func performAction(_ id:String) async throws {
+ public static func performAction(_ id:String, widgetId:String? = nil) async throws {
   let trimmed=id.trimmingCharacters(in:.whitespacesAndNewlines)
   if trimmed.isEmpty { throw AgentActionError.missingAction }
-  do { try await sendAction(trimmed) } catch AgentError.unpaired { throw AgentActionError.unpaired }
+  do { try await sendAction(trimmed, widgetId:widgetId) } catch AgentError.unpaired { throw AgentActionError.unpaired }
   try? await refresh()
   WidgetCenter.shared.reloadAllTimelines()
   await noteActionsChanged()

@@ -4,15 +4,169 @@ import AppIntents
 import ActivityKit
 import Charts
 
-struct AgentEntry: TimelineEntry { var date: Date; var snapshot: AgentSnapshot? }
-struct AgentProvider: TimelineProvider {
+// Keep kind identifiers stable so installed default widgets survive the upgrade.
+struct AgentEntry: TimelineEntry {
+ var date: Date
+ var snapshot: AgentSnapshot?
+ var widgetId: String? = nil
+}
+private func configuredEntry(_ id: String?, kind: String) -> AgentEntry {
+ AgentEntry(date: Date(), snapshot: AgentShared.snapshot()?.selecting(id, kind: kind), widgetId: id == "__default__" ? nil : id)
+}
+
+struct CardSelection: AppEntity {
+ static var typeDisplayRepresentation: TypeDisplayRepresentation = "Text Card"
+ static var defaultQuery = CardSelectionQuery()
+ var id: String
+ var name: String
+ var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(name)") }
+}
+struct CardSelectionQuery: EntityQuery {
+ private func cached() -> [CardSelection] {
+  [CardSelection(id: "__default__", name: "Default Text Card")] + (AgentShared.snapshot()?.widgetInstances ?? [])
+   .filter { $0.kind == "botCard" }.map { CardSelection(id: $0.id, name: $0.name) }
+ }
+ func entities(for identifiers: [String]) async throws -> [CardSelection] {
+  let items = cached()
+  return identifiers.map { id in items.first { $0.id == id } ?? CardSelection(id: id, name: "Unavailable — choose another") }
+ }
+ func suggestedEntities() async throws -> [CardSelection] {
+  try? await AgentShared.refresh()
+  return cached()
+ }
+ func defaultResult() async -> CardSelection? { CardSelection(id: "__default__", name: "Default Text Card") }
+}
+struct SelectCardIntent: WidgetConfigurationIntent {
+ static var title: LocalizedStringResource = "Choose Text Card"
+ static var description = IntentDescription("Choose the named content this widget displays. Your agent can update it independently.")
+ @Parameter(title: "Content") var content: CardSelection?
+ init() {}
+}
+struct CardProvider: AppIntentTimelineProvider {
  func placeholder(in context: Context) -> AgentEntry { AgentEntry(date: Date(), snapshot: nil) }
- func getSnapshot(in context: Context, completion: @escaping (AgentEntry) -> Void) { completion(AgentEntry(date: Date(), snapshot: AgentShared.snapshot())) }
- func getTimeline(in context: Context, completion: @escaping (Timeline<AgentEntry>) -> Void) {
-  Task {
-   try? await AgentShared.refresh()
-   completion(Timeline(entries: [AgentEntry(date: Date(), snapshot: AgentShared.snapshot())], policy: .after(Date().addingTimeInterval(1800))))
-  }
+ func snapshot(for configuration: SelectCardIntent, in context: Context) async -> AgentEntry {
+  configuredEntry(configuration.content?.id, kind: "botCard")
+ }
+ func timeline(for configuration: SelectCardIntent, in context: Context) async -> Timeline<AgentEntry> {
+  try? await AgentShared.refresh()
+  return Timeline(entries: [configuredEntry(configuration.content?.id, kind: "botCard")], policy: .after(Date().addingTimeInterval(1800)))
+ }
+}
+
+struct MetricSelection: AppEntity {
+ static var typeDisplayRepresentation: TypeDisplayRepresentation = "Metric"
+ static var defaultQuery = MetricSelectionQuery()
+ var id: String
+ var name: String
+ var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(name)") }
+}
+struct MetricSelectionQuery: EntityQuery {
+ private func cached() -> [MetricSelection] {
+  [MetricSelection(id: "__default__", name: "Default Metric")] + (AgentShared.snapshot()?.widgetInstances ?? [])
+   .filter { $0.kind == "metric" }.map { MetricSelection(id: $0.id, name: $0.name) }
+ }
+ func entities(for identifiers: [String]) async throws -> [MetricSelection] {
+  let items = cached()
+  return identifiers.map { id in items.first { $0.id == id } ?? MetricSelection(id: id, name: "Unavailable — choose another") }
+ }
+ func suggestedEntities() async throws -> [MetricSelection] {
+  try? await AgentShared.refresh()
+  return cached()
+ }
+ func defaultResult() async -> MetricSelection? { MetricSelection(id: "__default__", name: "Default Metric") }
+}
+struct SelectMetricIntent: WidgetConfigurationIntent {
+ static var title: LocalizedStringResource = "Choose Metric"
+ static var description = IntentDescription("Choose the named content this widget displays. Your agent can update it independently.")
+ @Parameter(title: "Content") var content: MetricSelection?
+ init() {}
+}
+struct MetricProvider: AppIntentTimelineProvider {
+ func placeholder(in context: Context) -> AgentEntry { AgentEntry(date: Date(), snapshot: nil) }
+ func snapshot(for configuration: SelectMetricIntent, in context: Context) async -> AgentEntry {
+  configuredEntry(configuration.content?.id, kind: "metric")
+ }
+ func timeline(for configuration: SelectMetricIntent, in context: Context) async -> Timeline<AgentEntry> {
+  try? await AgentShared.refresh()
+  return Timeline(entries: [configuredEntry(configuration.content?.id, kind: "metric")], policy: .after(Date().addingTimeInterval(1800)))
+ }
+}
+
+struct ChartSelection: AppEntity {
+ static var typeDisplayRepresentation: TypeDisplayRepresentation = "Chart"
+ static var defaultQuery = ChartSelectionQuery()
+ var id: String
+ var name: String
+ var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(name)") }
+}
+struct ChartSelectionQuery: EntityQuery {
+ private func cached() -> [ChartSelection] {
+  [ChartSelection(id: "__default__", name: "Default Chart")] + (AgentShared.snapshot()?.widgetInstances ?? [])
+   .filter { $0.kind == "chart" }.map { ChartSelection(id: $0.id, name: $0.name) }
+ }
+ func entities(for identifiers: [String]) async throws -> [ChartSelection] {
+  let items = cached()
+  return identifiers.map { id in items.first { $0.id == id } ?? ChartSelection(id: id, name: "Unavailable — choose another") }
+ }
+ func suggestedEntities() async throws -> [ChartSelection] {
+  try? await AgentShared.refresh()
+  return cached()
+ }
+ func defaultResult() async -> ChartSelection? { ChartSelection(id: "__default__", name: "Default Chart") }
+}
+struct SelectChartIntent: WidgetConfigurationIntent {
+ static var title: LocalizedStringResource = "Choose Chart"
+ static var description = IntentDescription("Choose the named content this widget displays. Your agent can update it independently.")
+ @Parameter(title: "Content") var content: ChartSelection?
+ init() {}
+}
+struct ChartProvider: AppIntentTimelineProvider {
+ func placeholder(in context: Context) -> AgentEntry { AgentEntry(date: Date(), snapshot: nil) }
+ func snapshot(for configuration: SelectChartIntent, in context: Context) async -> AgentEntry {
+  configuredEntry(configuration.content?.id, kind: "chart")
+ }
+ func timeline(for configuration: SelectChartIntent, in context: Context) async -> Timeline<AgentEntry> {
+  try? await AgentShared.refresh()
+  return Timeline(entries: [configuredEntry(configuration.content?.id, kind: "chart")], policy: .after(Date().addingTimeInterval(1800)))
+ }
+}
+
+struct GridSelection: AppEntity {
+ static var typeDisplayRepresentation: TypeDisplayRepresentation = "Button Grid"
+ static var defaultQuery = GridSelectionQuery()
+ var id: String
+ var name: String
+ var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(name)") }
+}
+struct GridSelectionQuery: EntityQuery {
+ private func cached() -> [GridSelection] {
+  [GridSelection(id: "__default__", name: "Default Button Grid")] + (AgentShared.snapshot()?.widgetInstances ?? [])
+   .filter { $0.kind == "buttonGrid" }.map { GridSelection(id: $0.id, name: $0.name) }
+ }
+ func entities(for identifiers: [String]) async throws -> [GridSelection] {
+  let items = cached()
+  return identifiers.map { id in items.first { $0.id == id } ?? GridSelection(id: id, name: "Unavailable — choose another") }
+ }
+ func suggestedEntities() async throws -> [GridSelection] {
+  try? await AgentShared.refresh()
+  return cached()
+ }
+ func defaultResult() async -> GridSelection? { GridSelection(id: "__default__", name: "Default Button Grid") }
+}
+struct SelectGridIntent: WidgetConfigurationIntent {
+ static var title: LocalizedStringResource = "Choose Button Grid"
+ static var description = IntentDescription("Choose the named content this widget displays. Your agent can update it independently.")
+ @Parameter(title: "Content") var content: GridSelection?
+ init() {}
+}
+struct GridProvider: AppIntentTimelineProvider {
+ func placeholder(in context: Context) -> AgentEntry { AgentEntry(date: Date(), snapshot: nil) }
+ func snapshot(for configuration: SelectGridIntent, in context: Context) async -> AgentEntry {
+  configuredEntry(configuration.content?.id, kind: "buttonGrid")
+ }
+ func timeline(for configuration: SelectGridIntent, in context: Context) async -> Timeline<AgentEntry> {
+  try? await AgentShared.refresh()
+  return Timeline(entries: [configuredEntry(configuration.content?.id, kind: "buttonGrid")], policy: .after(Date().addingTimeInterval(1800)))
  }
 }
 struct AgentPushHandler: WidgetPushHandler {
@@ -27,10 +181,11 @@ struct SendAgentAction: AppIntent {
  static var openAppWhenRun: Bool = false
  static var isDiscoverable: Bool = false
  @Parameter(title: "Action ID") var actionId: String
+ @Parameter(title: "Widget ID") var widgetId: String?
  init() {}
- init(actionId: String) { self.actionId = actionId }
+ init(actionId: String, widgetId: String?) { self.actionId = actionId; self.widgetId = widgetId }
  func perform() async throws -> some IntentResult {
-  do { try await AgentShared.performAction(actionId) }
+  do { try await AgentShared.performAction(actionId, widgetId: widgetId) }
   catch AgentActionError.unpaired { throw AgentWidgetIntentError.unpaired }
   catch AgentActionError.missingAction { throw AgentWidgetIntentError.missingAction }
   return .result()
@@ -52,8 +207,21 @@ struct AgentWidgetView: View {
  let entry: AgentEntry
  let kind: String
  private var plain: Bool { dimmed || renderingMode != .fullColor }
+ // A pageId opens that snapshot's details. No pageId keeps a plain app open. Button Grid is not linked.
+ private var pageDestination: URL? {
+  guard let widgets = entry.snapshot?.widgets else { return nil }
+  let id: String?
+  switch kind {
+  case "botCard": id = widgets.botCard.pageId
+  case "metric": id = widgets.metric.pageId
+  case "chart": id = widgets.chart?.pageId
+  default: id = nil
+  }
+  guard let id, id.range(of: #"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"#, options: .regularExpression) != nil else { return nil }
+  return URL(string: "agentnoticeboard:///page/\(id)")
+ }
  var body: some View {
-  Group {
+  openDetails(Group {
    if let data = entry.snapshot?.widgets {
     switch kind {
     case "botCard": botCard(data.botCard)
@@ -69,7 +237,10 @@ struct AgentWidgetView: View {
   .containerBackground(for: .widget) {
    // StandBy night mode and Always On dim the display. A black plate stays glanceable without a glowing fill.
    dimmed ? Color.black : Color(uiColor: .secondarySystemGroupedBackground)
-  }
+  })
+ }
+ @ViewBuilder private func openDetails<V: View>(_ view: V) -> some View {
+  if let url = pageDestination { view.widgetURL(url) } else { view }
  }
  @ViewBuilder private var placeholder: some View {
   if family == .accessoryInline {
@@ -80,7 +251,7 @@ struct AgentWidgetView: View {
    VStack(alignment: .leading, spacing: 6) {
     Image(systemName: "sparkle")
     Text("Agent Noticeboard").font(.headline)
-    if family != .accessoryRectangular { Text("Open the app to pair and sync.").font(.caption) }
+    if family != .accessoryRectangular { Text(entry.widgetId == nil ? "Open the app to pair and sync." : "Content unavailable. Edit this widget to choose another.").font(.caption) }
    }
    .frame(maxWidth: .infinity, alignment: .leading)
   }
@@ -155,7 +326,7 @@ struct AgentWidgetView: View {
    LazyVGrid(columns: columns, spacing: 8) {
     ForEach(Array(grid.buttons.prefix(4).enumerated()), id: \.offset) { _, button in
      let ink = agentButtonColors(button.style)
-     Button(intent: SendAgentAction(actionId: button.id)) {
+     Button(intent: SendAgentAction(actionId: button.id, widgetId: entry.widgetId)) {
       Text(button.label)
        .font(.caption.bold())
        .lineLimit(2)
@@ -298,7 +469,7 @@ extension Color {
 }
 struct BotCardWidget: Widget {
  var body: some WidgetConfiguration {
-  StaticConfiguration(kind: "botCard", provider: AgentProvider()) { AgentWidgetView(entry: $0, kind: "botCard") }
+  AppIntentConfiguration(kind: "botCard", intent: SelectCardIntent.self, provider: CardProvider()) { AgentWidgetView(entry: $0, kind: "botCard") }
    .configurationDisplayName("Bot Card")
    .description("A fresh note from your agent, on the Home Screen or Lock Screen.")
    .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryInline, .accessoryCircular, .accessoryRectangular])
@@ -307,7 +478,7 @@ struct BotCardWidget: Widget {
 }
 struct MetricWidget: Widget {
  var body: some WidgetConfiguration {
-  StaticConfiguration(kind: "metric", provider: AgentProvider()) { AgentWidgetView(entry: $0, kind: "metric") }
+  AppIntentConfiguration(kind: "metric", intent: SelectMetricIntent.self, provider: MetricProvider()) { AgentWidgetView(entry: $0, kind: "metric") }
    .configurationDisplayName("Metric")
    .description("One useful number on the Home Screen, Lock Screen, or StandBy.")
    .supportedFamilies([.systemSmall, .systemMedium, .accessoryInline, .accessoryCircular, .accessoryRectangular])
@@ -316,7 +487,7 @@ struct MetricWidget: Widget {
 }
 struct ChartWidget: Widget {
  var body: some WidgetConfiguration {
-  StaticConfiguration(kind: "chart", provider: AgentProvider()) { AgentWidgetView(entry: $0, kind: "chart") }
+  AppIntentConfiguration(kind: "chart", intent: SelectChartIntent.self, provider: ChartProvider()) { AgentWidgetView(entry: $0, kind: "chart") }
    .configurationDisplayName("Chart")
    .description("A small series, such as weekly hours, on the Home Screen or StandBy.")
    .supportedFamilies([.systemSmall, .systemMedium])
@@ -325,7 +496,7 @@ struct ChartWidget: Widget {
 }
 struct ButtonGridWidget: Widget {
  var body: some WidgetConfiguration {
-  StaticConfiguration(kind: "buttonGrid", provider: AgentProvider()) { AgentWidgetView(entry: $0, kind: "buttonGrid") }
+  AppIntentConfiguration(kind: "buttonGrid", intent: SelectGridIntent.self, provider: GridProvider()) { AgentWidgetView(entry: $0, kind: "buttonGrid") }
    .configurationDisplayName("Button Grid")
    .description("Send actions to Agent, with an optional question above the buttons.")
    .supportedFamilies([.systemSmall, .systemMedium])

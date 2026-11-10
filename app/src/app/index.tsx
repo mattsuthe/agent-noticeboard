@@ -117,9 +117,9 @@ export default function Home() {
       notifications.remove();
     };
   }, [refresh]);
-  async function tap(id: string) {
+  async function tap(id: string, widgetId?: string) {
     try {
-      await action(id);
+      await action(id, widgetId);
       setMessage("Action sent.");
       await refresh();
     } catch (e) {
@@ -171,6 +171,36 @@ export default function Home() {
       {state?.blocks.map((block) => (
         <BlockView key={block.id} block={block} onAction={tap} />
       ))}
+      {!!state?.widgetInstances?.length && (
+        <View style={{ gap: 12 }}>
+          <Text accessibilityRole="header" style={s.title}>Widget library</Text>
+          <Text style={s.muted}>
+            Add a Noticeboard widget to your Home Screen, then press and hold it,
+            choose Edit Widget, and select its Content. Each copy can show something different.
+          </Text>
+          {state.widgetInstances.map((widget) => (
+            <View key={widget.id} style={s.card}>
+              <Text style={s.title}>{widget.name}</Text>
+              <Text style={s.muted}>
+                {({ botCard: "Text card", metric: "Metric", chart: "Chart", buttonGrid: "Button grid" })[widget.kind]}
+              </Text>
+              {widget.kind === "botCard" && <Text style={s.text} numberOfLines={3}>{widget.data.body}</Text>}
+              {widget.kind === "metric" && <Text style={s.text}>{widget.data.label}: {widget.data.value} {widget.data.delta ?? ""}</Text>}
+              {widget.kind === "chart" && <Text style={s.text}>
+                {widget.data.title}{widget.data.points.length ? `: ${widget.data.points[widget.data.points.length - 1].value} ${widget.data.unit}` : ": Waiting for data"}
+              </Text>}
+              {widget.kind === "buttonGrid" ? <>
+                {widget.data.prompt && <Text style={s.text}>{widget.data.prompt}</Text>}
+                {widget.data.buttons.map(button => <Pressable key={button.id} accessibilityRole="button" style={s.button} onPress={() => void tap(button.id, widget.id)}>
+                  <Text style={s.buttonText}>{button.label}</Text>
+                </Pressable>)}
+              </> : widget.data.pageId && (
+                <Link href={{ pathname: "/page", params: { id: widget.data.pageId } }} style={{ color: colors.accent }}>View details ›</Link>
+              )}
+            </View>
+          ))}
+        </View>
+      )}
       {state && (
         <Text style={s.muted}>
           Updated {new Date(state.updatedAt).toLocaleString()}

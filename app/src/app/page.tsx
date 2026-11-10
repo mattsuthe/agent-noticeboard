@@ -1,58 +1,126 @@
-import { useCallback, useState } from "react";
+import ReportFeedback from "../ReportFeedback";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshControl, ScrollView, Text, View } from "react-native";
-import { Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { Link, Stack, useLocalSearchParams } from "expo-router";
 import Markdown from "../Markdown";
 import { type PageRecord } from "../../../shared/schema";
 import { loadPage } from "../relay";
-import { styles as s, colors } from "../theme";
-export default function PageScreen() {
-  const params = useLocalSearchParams<{ id?: string }>();
-  const pageId = typeof params.id === "string" ? params.id : "";
-  const [page, setPage] = useState<PageRecord | null>(null),
-    [message, setMessage] = useState(""),
-    [busy, setBusy] = useState(false);
-  const refresh = useCallback(async () => {
-    if (!pageId) {
-      setPage(null);
-      setMessage("This page is missing.");
+import { colors, styles as s } from "../theme";
+
+function unavailable(error: unknown) {
+  const text = error instanceof Error ? error.message : "";
+  if (error instanceof Error && error.name === "ZodError")
+    return "Could not read these details.";
+  if (text === "Page not found" || text === "Page expired")
+    return "These details are no longer available.";
+  return text || "Could not load these details.";
+}
+
+export default function DetailsPage() {
+  const params = useLocalSearchParams<{ id?: string | string[] }>();
+  const raw = Array.isArray(params.id) ? params.id[0] : (params.id ?? "");
+  const id = raw.length > 0 && raw.length <= 128 ? raw : "";
+  return <PageDetails key={id} id={id} />;
+}
+
+function PageDetails({ id }: { id: string }) {
+  const [item, setItem] = useState<PageRecord | null>(null);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(true);
+  const request = useRef(0);
+  const load = useCallback(async () => {
+    const current = ++request.current;
+    if (!id) {
+      setItem(null);
+      setMessage("These details are no longer available.");
+      setBusy(false);
       return;
     }
     setBusy(true);
     try {
-      setPage(await loadPage(pageId));
+      const page = await loadPage(id);
+      if (current !== request.current) return;
+      setItem(page);
       setMessage("");
-    } catch (e) {
-      setPage(null);
-      setMessage((e as Error).message);
+    } catch (error) {
+      if (current !== request.current) return;
+      setItem(null);
+      setMessage(unavailable(error));
     } finally {
-      setBusy(false);
+      if (current === request.current) setBusy(false);
     }
-  }, [pageId]);
-  useFocusEffect(
-    useCallback(() => {
-      void refresh();
-    }, [refresh]),
-  );
+  }, [id]);
+  useEffect(() => {
+    const current = ++request.current;
+    const pending = id
+      ? loadPage(id)
+      : Promise.reject(new Error("Page not found"));
+    pending.then(
+      (page) => {
+        if (current !== request.current) return;
+        setItem(page);
+        setMessage("");
+        setBusy(false);
+      },
+      (error: unknown) => {
+        if (current !== request.current) return;
+        setItem(null);
+        setMessage(
+          id ? unavailable(error) : "These details are no longer available.",
+        );
+        setBusy(false);
+      },
+    );
+    return () => {
+      request.current += 1;
+    };
+  }, [id]);
   return (
-    <ScrollView
-      contentInsetAdjustmentBehavior="automatic"
-      style={s.page}
-      contentContainerStyle={s.content}
-      refreshControl={
-        <RefreshControl refreshing={busy} onRefresh={refresh} tintColor={colors.accent} />
-      }
-    >
-      <Stack.Screen options={{ title: page?.title ?? "Page" }} />
-      {message !== "" && (
-        <Text accessibilityRole="alert" style={s.error}>
-          {message}
-        </Text>
-      )}
-      {page && (
-        <View style={s.card}>
-          <Markdown>{page.markdown}</Markdown>
-        </View>
-      )}
-    </ScrollView>
+    <>
+      <Stack.Screen
+        options={{ title: item?.title ?? "Details", headerLargeTitle: true }}
+      />
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        automaticallyAdjustKeyboardInsets
+        keyboardShouldPersistTaps="handled"
+        style={s.page}
+        contentContainerStyle={s.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={busy}
+            onRefresh={load}
+            tintColor={colors.accent}
+          />
+        }
+      >
+        {busy && !item && message === "" && (
+          <Text style={s.muted}>Loading details…</Text>
+        )}
+        {message !== "" && (
+          <View style={s.card}>
+            <Text accessibilityRole="alert" style={s.text}>
+              {message}
+            </Text>
+            {message.startsWith("Pair") && (
+              <Link href="/settings" style={{ color: colors.accent }}>
+                Settings
+              </Link>
+            )}
+          </View>
+        )}
+        {item && (
+          <View style={s.card}>
+            <Markdown>{item.markdown}</Markdown>
+          </View>
+        )}
+        {item && (
+          <Text style={s.muted}>
+            Updated {new Date(item.updatedAt).toLocaleString()}
+          </Text>
+        )}
+        {item && <ReportFeedback key={item.id} page={item} />}
+      </ScrollView>
+    </>
   );
 }

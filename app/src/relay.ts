@@ -85,7 +85,7 @@ export async function registerPush() {
   await AgentNative.startObserving();
 }
 export async function sync(): Promise<AppState> {
-  const state = State.parse(await request("/state"));
+  const state = State.parse(await request("/state?widgets=1"));
   await AgentNative.saveState(JSON.stringify(state));
   await AsyncStorage.setItem("agent-state", JSON.stringify(state));
   await AsyncStorage.setItem("agent-last-sync", new Date().toISOString());
@@ -97,10 +97,11 @@ export async function cached(): Promise<AppState | null> {
   const parsed = State.safeParse(JSON.parse(raw));
   return parsed.success ? parsed.data : null;
 }
-export async function action(actionId: string) {
+export async function action(actionId: string, widgetId?: string) {
   return request("/action", "POST", {
     id: Crypto.randomUUID(),
     actionId,
+    ...(widgetId ? { widgetId } : {}),
     source: "app",
     timestamp: new Date().toISOString(),
   });
@@ -109,5 +110,9 @@ export async function loadPages(): Promise<PageRecord[]> {
   return PageList.parse(await request("/pages")).pages;
 }
 export async function loadPage(id: string): Promise<PageRecord> {
-  return Page.parse(await request(`/pages/${encodeURIComponent(id)}`));
+  return Page.parse(await request(`/pages/${encodeURIComponent(id)}?feedback=1`));
+}
+
+export async function sendReportFeedback(id: string, pageId: string, pageUpdatedAt: string, text: string) {
+  return request("/feedback", "POST", { id, pageId, pageUpdatedAt, text });
 }
