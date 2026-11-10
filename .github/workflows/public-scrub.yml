@@ -1,0 +1,26 @@
+name: Public scrub
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  scrub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test scrub failure handling and redaction
+        run: node --test scripts/tests/public-scrub.test.mjs
+      - name: Scan changed files, including this workflow
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          PUBLIC_SCRUB_MARKERS: ${{ secrets.PUBLIC_SCRUB_MARKERS }}
+        run: node scripts/public-scrub.mjs "$BASE" "$HEAD"
