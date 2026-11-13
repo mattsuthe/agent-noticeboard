@@ -67,3 +67,5 @@ export default function Layout() {
     </>
   );
 }
+
+export { default as ErrorBoundary } from "../ScreenError";

@@ -390,3 +390,102 @@ reports generic-only coverage. Never switch to `pull_request_target` to expose
 secrets to untrusted PR code. This pattern scan supplements review; it cannot
 recognize all personal report content. Review scanner/workflow changes themselves
 and scrub every port with the private export tool before any public push.
+
+## Durability checks and recovery
+
+`node scripts/check-build-age.mjs` reports the newest successfully submitted
+production build, its age, renewal date (80 days), and conservative estimated
+expiry (90 days from EAS creation). It exits nonzero starting at 60 days to leave
+recovery time. The daily **Release audit** workflow runs this independently of
+monthly Ship. EAS artifact `expirationDate` is not TestFlight expiry. Use
+`npx eas-cli@27.9.0 submit:status -p ios --json --non-interactive` from `app/` to
+confirm Apple processing, internal beta availability and expiry status. An OTA
+does not renew a binary, and a newer binary does not prove the phone installed it.
+
+On a trusted authoring Mac, these read/release scripts accept `--local-session`
+to use the existing Expo login without copying secrets. CI still requires
+EXPO_TOKEN and validates configured account/project variables. For direct release:
+
+```sh
+npm run lint --workspace app
+npm run typecheck
+npm test
+node --test scripts/tests/action-consumer.test.mjs
+(cd app && npx expo export --platform ios)
+node scripts/ship-mobile.mjs --local-session --dry-run
+node scripts/ship-mobile.mjs --local-session
+```
+
+The release script retries transient read-only EAS queries three times. It never
+blindly retries a release mutation. If a build/submission is still active, it
+stops with its ID. Rerunning recovers a finished, unsubmitted build of the exact
+source commit instead of paying for a duplicate; it waits for submission before
+publishing OTA. `--force-build` renews an unchanged source too, except a matching
+build already submitted in the last 24 hours. An ambiguous EAS failure requires
+checking EAS status before rerunning. Apple processing and internal distribution
+must still be verified after submission.
+
+Do not put CI skip directives on app, relay, shared, script, test, workflow or
+configuration changes. **Release skip audit** inspects PR metadata even when a
+commit requests a skip; it runs no PR code and has read-only permissions. It is
+an additional diagnostic check, not a replacement for branch protections or the
+installation-specific review policies. Direct pushes can still skip push-triggered workflows;
+all changes must go through reviewed PRs. A GitHub billing block prevents Actions
+jobs including monitoring from running; local checks and the existing Expo and
+Wrangler logins remain independent of GitHub billing.
+
+`GET /health` now checks the D1 schema and returns 503 when unavailable. Bot-only
+`GET /health?details=1` adds outbox counts/oldest timestamps and the age of the last
+successful cron. More than five minutes without a successful cron is unhealthy;
+inspect pending/failed deliveries. It does not prove APNs display or agent receipt.
+Authenticated bot data writes allow 240/minute; push writes and device writes
+allow 60/minute per principal/category, atomically across Worker instances.
+Excess writes return 429 with Retry-After before mutation. Reads, token rotation,
+and the separate existing pairing budget remain available. Retry writes with the
+same action/feedback UUID and observe revision conflicts; never replay arbitrary
+writes automatically.
+
+`node scripts/backup-d1.mjs` exports the existing remote D1 database using the
+local Wrangler login. It writes private files outside the checkout (default:
+`~/Library/Application Support/AgentNoticeboard/backups`), validates the SQL in a
+local SQLite database, checks integrity and required tables, and writes a SHA-256
+manifest. Only a directory with `verified.json` is a completed backup. The script
+never imports, restores, drops, migrates or prunes remote data. Exports contain
+private reports, device hashes and action payloads: do not publish or upload them
+as CI artifacts. `NOTICEBOARD_BACKUP_DIR` can select another private local folder.
+A backup on this Mac protects against accidental database changes, not loss of
+this Mac; use the owner's existing disk backup. Restoration is a separate,
+reviewed recovery operation and must not drop the live database.
+
+The app uses a 15-second relay deadline, deduplicates concurrent board syncs, and
+stores at most 20 validated detail reports per relay/device. On network/server
+failure it shows an explicitly dated offline copy. Expired pages and confirmed
+404 responses are removed; authorization failures never use offline fallback.
+Feedback retains its original report version and can still be rejected as stale
+when connectivity returns. Settings identifies the installed native build,
+runtime, channel and update separately; it never infers binary expiry from an OTA
+date. Render failures offer retry and Settings without clearing relay data.
+
+### Maintenance when GitHub Actions cannot run
+
+On a trusted authoring Mac, `node scripts/install-maintenance.mjs` installs an optional
+08:20 local-time launchd job using existing Git/Expo/Wrangler credentials. Set
+NOTICEBOARD_RELAY_URL when installing to include a public relay health probe.
+The job maintains its own detached checkout of reviewed `origin/main`, refuses
+to overwrite local changes, exports D1 weekly, checks build age daily, and at
+60 days runs local verification then requests renewal of the existing Expo
+project. It checks Apple internal-beta status afterwards. It does not deploy relay
+changes or merge code. Scheduled renewal adds only the normal EAS build usage of
+the existing account; it creates no service or subscription.
+
+State and bounded per-run logs are under
+`~/Library/Application Support/AgentNoticeboard/maintenance/`. `status.json`
+records failures, last successful backup, source commit and Apple/relay status.
+This is a local supervisor, not an external alert service: inspect its status
+when investigating, and keep the Mac available. A powered-off/logged-out Mac or
+expired credentials stops this fallback. The runner recovers stale process locks after interruption; a live owner
+prevents concurrent runs. Backups are retained
+without automatic deletion; include this folder in existing disk backups and
+review disk space periodically. To uninstall, boot out the launchd service and
+remove its plist; preserve backup data. Re-run the installer after changing the
+Node installation path or updating the installed runner.

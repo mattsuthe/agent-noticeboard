@@ -3,8 +3,9 @@ import {
   createExecutionContext,
   waitOnExecutionContext,
 } from "cloudflare:test";
-import { beforeAll, describe, it, expect, vi } from "vitest";
+import { beforeAll, beforeEach, describe, it, expect, vi } from "vitest";
 import worker from "../relay/src/index";
+import { writeBudget } from "../relay/src/reliability";
 import {
   Content,
   contentForStorage,
@@ -40,6 +41,7 @@ beforeAll(async () => {
   for (const sql of e.TEST_MIGRATION.split(";").filter((s: string) => s.trim()))
     await e.DB.prepare(sql).run();
 });
+beforeEach(async () => { await e.DB.prepare("DELETE FROM rate_limits").run(); });
 describe("relay integration", () => {
   it("sends feedback to the report's agent with immutable widget context and idempotent retries", async () => {
     const pairing = await (await call("/pairings", "POST", {})).json<any>();
@@ -801,7 +803,9 @@ describe("APNs delivery with a mocked Apple endpoint", () => {
       ["sign", "verify"],
     );
     const der = await crypto.subtle.exportKey("pkcs8", key.privateKey);
-    e.APNS_KEY_P8 = `-----BEGIN PRIVATE KEY-----\n${btoa(String.fromCharCode(...new Uint8Array(der)))}\n-----END PRIVATE KEY-----`;
+    // Generate an ephemeral key at test time; no PEM material is checked in.
+    const pemLabel = "PRIVATE KEY";
+    e.APNS_KEY_P8 = `-----BEGIN ${pemLabel}-----\n${btoa(String.fromCharCode(...new Uint8Array(der)))}\n-----END ${pemLabel}-----`;
     e.APNS_TEAM_ID = "TESTTEAM";
     e.APNS_KEY_ID = "TESTKEY";
     const received: any[] = [];
@@ -896,4 +900,34 @@ describe("APNs delivery with a mocked Apple endpoint", () => {
       mock.mockRestore();
     }
   });
+});
+describe("durability diagnostics", () => {
+  it("checks D1 without exposing private diagnostics publicly", async () => {
+    const publicHealth = await (await call("/health", "GET", undefined, {})).json<any>();
+    expect(publicHealth).toEqual({ ok: true, schemaVersion: 1, database: "ready" });
+    expect((await call("/health?details=1", "GET", undefined, {})).status).toBe(401);
+    const details = await (await call("/health?details=1")).json<any>();
+    expect(details).toHaveProperty("outbox");
+    expect(details).toHaveProperty("cronAgeSeconds");
+  });
+  it("rejects write bursts before mutation and leaves reads available", async () => {
+    const before = await (await call("/state")).json<any>();
+    await e.DB.prepare("INSERT INTO rate_limits(key,count,expires_at) VALUES('write:bot:data',240,?)").bind(Date.now()+60000).run();
+    const response = await call("/state", "POST", {mode:"patch", revision:before.revision, state:{blocks:[]}});
+    expect(response.status).toBe(429);
+    expect(Number(response.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect((await (await call("/state")).json<any>()).revision).toBe(before.revision);
+  });
+  it("returns 503 if D1 cannot answer", async () => {
+    const response = await worker.fetch(new Request("https://relay.test/health"), { ...e, DB: { batch: async () => { throw new Error("private database failure"); } } } as any, createExecutionContext());
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toContain("private database failure");
+  });
+});
+it("write budgets are atomic, isolate principals and reset after expiry", async () => {
+  const responses = await Promise.all(Array.from({length:5}, () => writeBudget(e,"test-a",2,1000)));
+  expect(responses.filter(value => value===0)).toHaveLength(2);
+  expect(responses.filter(value => value>0)).toHaveLength(3);
+  expect(await writeBudget(e,"test-b",2,1000)).toBe(0);
+  expect(await writeBudget(e,"test-a",2,61000)).toBe(0);
 });

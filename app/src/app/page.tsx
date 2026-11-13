@@ -7,6 +7,8 @@ import { type PageRecord } from "../../../shared/schema";
 import { loadPage } from "../relay";
 import { colors, styles as s } from "../theme";
 
+export { default as ErrorBoundary } from "../ScreenError";
+
 function unavailable(error: unknown) {
   const text = error instanceof Error ? error.message : "";
   if (error instanceof Error && error.name === "ZodError")
@@ -40,8 +42,8 @@ function PageDetails({ id }: { id: string }) {
     try {
       const page = await loadPage(id);
       if (current !== request.current) return;
-      setItem(page);
-      setMessage("");
+      setItem(page.page);
+      setMessage(page.cachedAt ? `Offline copy saved ${new Date(page.cachedAt).toLocaleString()}. Pull to refresh.` : "");
     } catch (error) {
       if (current !== request.current) return;
       setItem(null);
@@ -58,8 +60,8 @@ function PageDetails({ id }: { id: string }) {
     pending.then(
       (page) => {
         if (current !== request.current) return;
-        setItem(page);
-        setMessage("");
+        setItem(page.page);
+        setMessage(page.cachedAt ? `Offline copy saved ${new Date(page.cachedAt).toLocaleString()}. Pull to refresh.` : "");
         setBusy(false);
       },
       (error: unknown) => {

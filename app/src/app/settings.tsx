@@ -108,6 +108,13 @@ export default function Settings() {
         <Text style={s.text}>{last}</Text>
         <Text style={s.muted}>APP VERSION</Text>
         <Text style={s.text}>{Constants.expoConfig?.version ?? "Unknown"}</Text>
+        <Text style={s.muted}>INSTALLED BUILD</Text>
+        <Text selectable style={s.text}>{Constants.platform?.ios?.buildNumber ?? "Development build"}</Text>
+        <Text style={s.muted}>UPDATE</Text>
+        <Text selectable style={s.text}>{Updates.updateId ?? "Embedded bundle"}</Text>
+        <Text style={s.text}>{Updates.isEmbeddedLaunch ? "Bundled with this build" : "Downloaded update"} · {Updates.channel ?? "Development"}</Text>
+        <Text style={s.muted}>TESTFLIGHT</Text>
+        <Text style={s.text}>Builds expire after 90 days. Updates do not renew the installed build. TestFlight shows its exact expiry; the operator monitors renewal at 80 days.</Text>
         <Text style={s.muted}>RUNTIME VERSION</Text>
         <Text selectable style={s.text}>
           {Updates.runtimeVersion ?? "Development build"}

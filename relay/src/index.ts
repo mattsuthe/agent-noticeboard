@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { health, writeBudget } from "./reliability";
 import {
   Action,
   ActivityContent,
@@ -42,15 +43,17 @@ async function body(req: Request) {
     fail(400, "Invalid JSON");
   }
 }
-async function bot(req: Request, env: Env) {
-  if (
-    !env.BOT_TOKEN ||
-    !(await equal(
+async function isBot(req: Request, env: Env) {
+  return (
+    !!env.BOT_TOKEN &&
+    (await equal(
       req.headers.get("authorization") ?? "",
       `Bearer ${env.BOT_TOKEN}`,
     ))
-  )
-    fail(401, "Unauthorized");
+  );
+}
+async function bot(req: Request, env: Env) {
+  if (!(await isBot(req, env))) fail(401, "Unauthorized");
 }
 async function device(req: Request, env: Env) {
   const id = req.headers.get("x-device-id") ?? "";
@@ -202,8 +205,22 @@ async function handle(
 ): Promise<Response> {
   const path = new URL(req.url).pathname;
   const method = req.method;
-  if (path === "/health" && method === "GET")
-    return json({ ok: true, schemaVersion: 1 });
+  if (path === "/health" && method === "GET") {
+    const detailed = new URL(req.url).searchParams.get("details") === "1";
+    if (detailed) await bot(req, env);
+    return health(env, detailed);
+  }
+  // Authenticated writes only: unknown clients cannot consume another principal's budget.
+  // Pairing has its own per-IP budget; token registration must remain available.
+  if ((method === "POST" || method === "DELETE") && path !== "/register") {
+    const botRequest = await isBot(req, env);
+    const principal = botRequest ? "bot" : (await device(req, env)).id;
+    const push = path === "/notify" || path === "/activity";
+    const retryAfter = await writeBudget(env, `${principal}:${push ? "push" : "data"}`, botRequest && !push ? 240 : 60);
+    if (retryAfter) return Response.json({ error: "Too many writes; retry after the indicated delay" }, {
+      status: 429, headers: { "retry-after": String(retryAfter), "cache-control": "no-store" },
+    });
+  }
   if (path === "/register" && method === "POST") {
     const input = z
       .object({
@@ -612,6 +629,7 @@ export default {
             "DELETE FROM pages WHERE keep_until IS NOT NULL AND keep_until<?",
           ).bind(Date.now()),
         ]);
+        await env.DB.prepare("INSERT INTO relay_health(id,last_success) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET last_success=excluded.last_success").bind(Date.now()).run();
       })(),
     );
   },

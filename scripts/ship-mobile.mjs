@@ -1,36 +1,29 @@
 import { createFingerprintAsync } from '@expo/fingerprint';
-import { selectBaseline } from './release-policy.mjs';
+import { releasePlan, selectBaseline } from './release-policy.mjs';
+import { app, queryBuilds } from './eas-api.mjs';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-const app = fileURLToPath(new URL('../app/', import.meta.url));
-const projectId = '00000000-0000-0000-0000-000000000002';
-if (!process.env.EXPO_TOKEN) throw new Error('EXPO_TOKEN is required for unattended shipping');
+
 const { hash } = await createFingerprintAsync(app, { platforms: ['ios'] });
-const response = await fetch('https://api.expo.dev/graphql', {
-  method: 'POST',
-  headers: { authorization: `Bearer ${process.env.EXPO_TOKEN}`, 'content-type': 'application/json' },
-  body: JSON.stringify({
-    query: `query AgentReleaseBaseline($appId: String!, $filter: BuildFilter) {
-      app { byId(appId: $appId) { builds(offset: 0, limit: 100, filter: $filter) {
-        id status distribution buildProfile isForIosSimulator createdAt
-        fingerprint { hash } submissions { status }
-      } } }
-    }`,
-    variables: { appId: projectId, filter: { platform: 'IOS', status: 'FINISHED', distribution: 'STORE', buildProfile: 'production', fingerprintHash: hash } },
-  }),
-  signal: AbortSignal.timeout(30000),
-});
-const result = await response.json();
-if (!response.ok || result.errors) throw new Error('Unable to verify EAS release baseline; refusing to guess between OTA and build');
-const builds = result.data?.app?.byId?.builds;
-if (!Array.isArray(builds)) throw new Error('Unexpected EAS release response');
-// EAS build completion alone is insufficient: a failed/unsubmitted build cannot be an OTA baseline.
-const baseline = selectBaseline(builds, hash);
-const force = process.argv.includes('--force-build');
-const args = baseline && !force
-  ? ['update', '--channel', 'production', '--platform', 'ios', '--environment', 'production', '--non-interactive', '--message', `GitHub ${process.env.GITHUB_SHA ?? 'manual'} (${hash})`]
-  : ['build', '-p', 'ios', '--profile', 'production', '--auto-submit', '--non-interactive', '--wait'];
-console.log(baseline && !force ? `Publishing OTA for submitted runtime ${hash}` : `Building and submitting runtime ${hash}`);
-const command = spawnSync('eas', args, { cwd: app, stdio: 'inherit', env: process.env });
-if (command.error) throw command.error;
-process.exit(command.status ?? 1);
+const commit = process.env.GITHUB_SHA ?? spawnSync('git', ['rev-parse', 'HEAD'], { cwd: app, encoding: 'utf8' }).stdout.trim();
+const builds = await queryBuilds(hash);
+const plan = releasePlan(builds, hash, commit, process.argv.includes('--force-build'));
+console.log(JSON.stringify({ runtime: hash, action: plan.kind, buildId: plan.build?.id }));
+if (process.argv.includes('--dry-run')) process.exit(0);
+if (plan.kind === 'wait') throw new Error(`Build/submission ${plan.build.id} is still active. Rerun after it finishes; no duplicate was queued.`);
+function eas(args) {
+  const result = spawnSync('npx', ['--yes', 'eas-cli@27.9.0', ...args], { cwd: app, stdio: 'inherit', env: process.env });
+  if (result.error || result.status !== 0) throw new Error('EAS command did not finish successfully. Inspect EAS, then rerun this script; do not blindly queue another build.');
+}
+if (plan.kind === 'submit') {
+  eas(['submit', '-p', 'ios', '--id', plan.build.id, '--profile', 'production', '--non-interactive', '--wait']);
+  if (!selectBaseline(await queryBuilds(hash), hash)) throw new Error('Submission is not confirmed finished; OTA withheld');
+}
+if (plan.kind === 'update' || plan.kind === 'submit') {
+  eas(['update', '--channel', 'production', '--platform', 'ios', '--environment', 'production', '--non-interactive', '--message', `Release ${commit} (${hash})`]);
+} else {
+  const started = Date.now();
+  eas(['build', '-p', 'ios', '--profile', 'production', '--auto-submit', '--non-interactive', '--wait']);
+  // Auto-submit can still be running when the build command returns.
+  const finished = (await queryBuilds(hash)).filter(build => build.gitCommitHash === commit && Date.parse(build.createdAt) >= started - 60000);
+  if (!selectBaseline(finished, hash)) throw new Error('Build completed but its submission is not confirmed. Rerun after checking EAS submission status.');
+}
