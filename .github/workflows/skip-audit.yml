@@ -1,0 +1,26 @@
+name: Release skip audit
+# Commit skip directives do not suppress pull_request_target. Never check out or
+# execute PR code here; only inspect GitHub metadata with a read-only token.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  skip-directives:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const args = { ...context.repo, pull_number: context.payload.pull_request.number };
+            const files = await github.paginate(github.rest.pulls.listFiles, { ...args, per_page: 100 });
+            const documentation = /^(docs\/|.*\.md$|LICENSE$)/;
+            if (files.every(file => documentation.test(file.filename) && (!file.previous_filename || documentation.test(file.previous_filename)))) return;
+            const commits = await github.paginate(github.rest.pulls.listCommits, { ...args, per_page: 100 });
+            const skip = /\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]|skip-checks:\s*true/i;
+            if (skip.test(context.payload.pull_request.title) || commits.some(commit => skip.test(commit.commit.message))) {
+              core.setFailed('Runtime, relay, script, workflow and test changes must not use CI skip directives. Remove the directive and rerun verification before merging.');
+            }

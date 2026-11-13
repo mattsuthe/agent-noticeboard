@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS relay_health (id INTEGER PRIMARY KEY CHECK(id=1), last_success INTEGER NOT NULL);

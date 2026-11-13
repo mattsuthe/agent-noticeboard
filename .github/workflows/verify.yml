@@ -20,7 +20,7 @@ jobs:
       - run: npm run lint --workspace app
       - run: npm run typecheck
       - run: npm test
-      - run: node --test scripts/tests/action-consumer.test.mjs
+      - run: node --test scripts/tests/*.test.mjs
       - run: npm run test:configure
       - run: npx expo export --platform ios
         working-directory: app

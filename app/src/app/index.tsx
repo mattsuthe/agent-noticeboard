@@ -209,3 +209,5 @@ export default function Home() {
     </ScrollView>
   );
 }
+
+export { default as ErrorBoundary } from "../ScreenError";
