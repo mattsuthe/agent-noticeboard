@@ -97,3 +97,7 @@ and confirm the same event ID arrived in the intended conversation.
 WEBHOOK_URL plus WEBHOOK_SECRET remains an alternative for immediate push delivery.
 Validate its HMAC and use the same event handler/deduplication logic. Do not run two
 receivers for the same agent without shared event-ID deduplication.
+
+For snapshot-linked follow-ups, agent receipts and replies, see
+[Report-linked conversations](CONVERSATIONS.md). This optional API preserves the
+legacy feedback contract and requires an adopting client UI.
