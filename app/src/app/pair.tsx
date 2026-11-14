@@ -6,15 +6,21 @@ import { pair, sync } from "../relay";
 import { styles as s } from "../theme";
 export default function Pair() {
   const params = useLocalSearchParams<{ relay?: string; code?: string }>();
+  return (
+    <PairForm
+      key={JSON.stringify([params.relay, params.code])}
+      relay={params.relay}
+      code={params.code}
+    />
+  );
+}
+// Reset scanned candidates and errors when a new link reaches this open screen.
+function PairForm({ relay, code }: { relay?: string; code?: string }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [candidate, setCandidate] = useState<{
     relay: string;
     code: string;
-  } | null>(
-    params.relay && params.code
-      ? { relay: params.relay, code: params.code }
-      : null,
-  );
+  } | null>(relay && code ? { relay, code } : null);
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   function scan(value: string) {
@@ -52,10 +58,19 @@ export default function Pair() {
           <Text selectable style={s.muted}>
             {candidate.relay}
           </Text>
-          <Pressable disabled={busy} onPress={confirm} style={s.button}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ disabled: busy, busy }}
+            disabled={busy}
+            onPress={confirm}
+            style={s.button}
+          >
             <Text style={s.buttonText}>{busy ? "Connecting…" : "Connect"}</Text>
           </Pressable>
-          <Pressable onPress={() => setCandidate(null)}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setCandidate(null)}
+          >
             <Text style={s.text}>Scan another code</Text>
           </Pressable>
         </>
@@ -66,7 +81,11 @@ export default function Pair() {
           onBarcodeScanned={(r) => scan(r.data)}
         />
       ) : (
-        <Pressable onPress={requestPermission} style={s.button}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={requestPermission}
+          style={s.button}
+        >
           <Text style={s.buttonText}>Enable camera to scan</Text>
         </Pressable>
       )}

@@ -13,11 +13,12 @@ export async function fetchJSON(url: string, init: RequestInit = {}, timeoutMs =
     try { result = await response.json(); }
     catch {
       if (controller.signal.aborted) throw new RelayError("Relay timed out. Try again when your connection returns.");
-      throw new RelayError(`Relay returned an unreadable response (${response.status}).`, response.ok ? 502 : response.status);
+      throw new RelayError(response.status === 401 ? "Pair your iPhone again in Settings." : "Your agent’s connection is temporarily unavailable. Please try again shortly.", response.ok ? 502 : response.status);
     }
     if (!response.ok) throw new RelayError(
       response.status === 401 ? "Pair your iPhone again in Settings." :
-      response.status === 429 ? "Relay is busy. Wait a minute and try again." :
+      response.status === 429 ? "Your agent’s connection is busy. Wait a minute and try again." :
+      response.status >= 500 ? "Your agent’s connection is temporarily unavailable. Please try again shortly." :
       typeof result?.error === "string" ? result.error : `Relay returned ${response.status}`,
       response.status,
     );
