@@ -1,3 +1,5 @@
+import { MessageSubmission, AgentReceipt, AgentReply } from "../../shared/conversations";
+import { threadForReport, threadById, readThread, submitMessage, acknowledge, reply } from "./conversations";
 import { z } from "zod";
 import { health, writeBudget } from "./reliability";
 import {
@@ -281,6 +283,35 @@ async function handle(
     }
     fail(409, "Concurrent token registration; retry");
   }
+  if (path.startsWith("/conversations/") && method === "GET") {
+    const id = z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .parse(path.slice("/conversations/".length));
+    const asBot = !!env.BOT_TOKEN && await equal(req.headers.get("authorization") ?? "", `Bearer ${env.BOT_TOKEN}`);
+    const owner = asBot ? undefined : (await device(req, env)).id;
+    const thread = await threadById(env, id, owner);
+    if (!thread) fail(404, "Conversation not found");
+    return json({ thread: await readThread(env, thread!) });
+  }
+  if (path === "/conversations" && method === "GET") {
+    const d = await device(req, env);
+    const params = new URL(req.url).searchParams;
+    const pageId = PageId.parse(params.get("pageId"));
+    const version = z.iso.datetime().parse(params.get("version"));
+    const thread = await threadForReport(env, d.id, pageId, version);
+    return json({ thread: thread ? await readThread(env, thread) : null });
+  }
+  if (path === "/messages" && method === "POST") {
+    const d = await device(req, env);
+    const response = await submitMessage(
+      env,
+      d.id,
+      MessageSubmission.parse(await body(req)),
+    );
+    ctx.waitUntil(drain(env));
+    return json(response.body, response.status);
+  }
   if (path === "/state" && method === "GET") {
     await reader(req, env);
     const current = await state(env);
@@ -338,6 +369,17 @@ async function handle(
       ? { ...storedPage(row!), feedbackContext: await feedbackContextForPage(env, row!.id) } : storedPage(row!));
   }
   await bot(req, env);
+  if (path === "/messages/ack" && method === "POST") {
+    const response = await acknowledge(
+      env,
+      AgentReceipt.parse(await body(req)).messageId,
+    );
+    return json(response.body, response.status);
+  }
+  if (path === "/messages/reply" && method === "POST") {
+    const response = await reply(env, AgentReply.parse(await body(req)));
+    return json(response.body, response.status);
+  }
   if (path === "/pages" && method === "POST") {
     const input = PageWrite.parse(await body(req));
     const updatedAt = new Date().toISOString();
