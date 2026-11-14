@@ -27,3 +27,11 @@ it('ignores corrupt cache, bounds reports and respects expiry', () => {
   expect(savePage(entries, {...page,title:'New'})[0].page.title).toBe('New');
   expect(savePage(entries,page).filter(entry=>entry.page.id==='report')).toHaveLength(1);
 });
+
+it('describes an unavailable upstream without exposing HTML or infrastructure codes', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<html>tunnel unavailable</html>', { status: 530 })));
+  await expect(fetchJSON('https://relay.test')).rejects.toMatchObject({
+    status: 530, retryable: true,
+    message: 'Your agent’s connection is temporarily unavailable. Please try again shortly.',
+  });
+});
