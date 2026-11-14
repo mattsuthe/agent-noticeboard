@@ -6,7 +6,7 @@ snapshot and receive observable acknowledgments and replies. Existing `/feedback
 feedback screen still uses `/feedback`; a client must adopt the endpoints below
 to display threads and delivery states.
 
-Apply migration `0005_report_threads.sql` before deploying the new Worker. No new
+Apply migration `0006_report_threads.sql` before deploying the new Worker. No new
 secret or model provider is required. Use existing per-device authentication for
 app calls and `BOT_TOKEN` for receiver calls. Never embed bot credentials in an app.
 
