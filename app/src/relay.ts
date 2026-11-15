@@ -58,7 +58,8 @@ export async function pair(relay: string, code: string) {
   await AsyncStorage.multiRemove(["agent-state", "agent-last-sync"]);
   await AgentNative.configure(value);
   await SecureStore.setItemAsync(key, JSON.stringify(value));
-  await registerPush();
+  // Push setup may remain pending; saved pairing is already usable.
+  void registerPush().catch(() => {});
   return value;
 }
 export async function unpair() {
