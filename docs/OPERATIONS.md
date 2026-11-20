@@ -49,9 +49,41 @@ eas build -p ios --profile production --auto-submit --non-interactive --wait
 
 `runtimeVersion.policy` is `fingerprint`. Do not replace it with a fixed version or manually send incompatible updates. All widget Swift and plugin inputs must participate in the fingerprint. Widget **data** can change without rebuilding; widget **layout code** cannot.
 
+### CI cost and release safety
+
+Hosted native verification is separate from EAS building/signing/submission.
+Ship uses Ubuntu verification on pushes, manual releases and monthly renewals;
+it does not allocate a hosted Mac. Superseded main pushes therefore spend no
+Mac minutes. Keep Ship's production concurrency `cancel-in-progress: false`:
+an in-flight EAS build or submission must not be cancelled by a newer push.
+PR verification may cancel an older run for the same PR.
+
+The monthly forced TestFlight renewal and independent daily Release audit remain
+enabled. Neither needs hosted macOS. OTA still requires the production native
+fingerprint, successful submission and a sufficiently young binary; an unchanged
+source still renews through EAS. A GitHub Actions budget pause prevents both CI
+and scheduled monitoring from running; do not repeatedly retry blocked jobs or
+treat missing checks as passing. Keep the documented local maintenance fallback
+available while Actions is paused.
+
+The public template uses **zero macOS minutes by default**: PRs and Ship run
+Ubuntu checks, including the existing Public scrub workflow on PRs/main. Native
+compilation is opt-in through manual Verify dispatch only; enabling deployment
+does not enable automatic hosted Mac jobs. EAS still compiles native releases.
+
+For explicit native verification: `gh workflow run verify.yml --ref BRANCH`.
+Add `-f simulator=true` to also boot an iPhone simulator.
+The default dispatch compiles the app and extension and runs the Swift widget
+checks without booting a simulator. Manual Ship does not opt into these checks.
+Use the standard Apple Silicon `macos-26` runner with `ARCHS=arm64`; do not select
+an Intel or premium larger runner. Compilation failures remain failures.
+Simulator evidence is uploaded only for an explicitly requested simulator run.
+Run that journey before releases that need UI acceptance; compilation alone is
+not evidence of physical-device behavior.
+
 ### Automated releases
 
-Push to `main`: Ship calls the reusable Verify workflow for TypeScript, relay integration tests, JS export, hosted native compilation and simulator launch. Only after verification succeeds, Ship compares the whole push against its previous commit and deploys changed relay code/migrations and runs `scripts/ship-mobile.mjs` for app/shared changes. OTA requires a matching production fingerprint, a successful EAS submission, and a build less than 80 days old. Otherwise it builds and submits. API errors stop the release rather than guessing. Confirm Apple processing and internal-group distribution after submission; EAS upload success alone cannot prove installation. A failed submission can be retried with `eas submit -p ios --id BUILD_ID --profile production --non-interactive`.
+Push to `main`: Ship calls the reusable Verify workflow for lint, TypeScript, relay integration tests, script tests and JS export on Ubuntu. Only after verification succeeds, Ship compares the whole push against its previous commit and deploys changed relay code/migrations and runs `scripts/ship-mobile.mjs` for app/shared changes. OTA requires a matching production fingerprint, a successful EAS submission, and a build less than 80 days old. Otherwise it builds and submits. API errors stop the release rather than guessing. Confirm Apple processing and internal-group distribution after submission; EAS upload success alone cannot prove installation. A failed submission can be retried with `eas submit -p ios --id BUILD_ID --profile production --non-interactive`.
 
 The workflow runs a forced build on the first of every month at 14:00 UTC. TestFlight builds expire after 90 days; monthly rebuilds provide overlap. A successful upload is not proof of tester availability: check App Store Connect processing and internal group distribution. Enable GitHub failure notifications and inspect any failed Ship run promptly.
 

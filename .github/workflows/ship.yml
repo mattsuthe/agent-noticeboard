@@ -13,6 +13,8 @@ concurrency:
 jobs:
   verify:
     uses: ./.github/workflows/verify.yml
+    with:
+      release: true
   ship:
     if: vars.DEPLOY_ENABLED == 'true'
     needs: verify
